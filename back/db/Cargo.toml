@@ -1,0 +1,8 @@
+[package]
+edition = "2018"
+name = "db"
+version = "0.0.0"
+authors = ["David Lukes <dafydd.lukes@gmail.com>"]
+
+[dependencies]
+diesel = { version = "1.4.1", features = ["sqlite"] }

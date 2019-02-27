@@ -2,7 +2,7 @@
 
 members = [
   # "eaf",  # parsing and manipulation of EAF transcripts
-  # "db",   # sqlite db
+  "db",   # sqlite db
   # "fs",   # file-system store for transcripts (git) and recordings
   # "cli",  # command line interface
   # "web",  # web interface
