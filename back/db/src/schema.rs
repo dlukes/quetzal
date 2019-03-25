@@ -1,6 +1,6 @@
 table! {
     corpora (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         label -> Text,
     }
 }
@@ -16,7 +16,7 @@ table! {
 
 table! {
     docs (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         project_id -> Integer,
         corpus_id -> Nullable<Integer>,
         assigned_to_id -> Nullable<Integer>,
@@ -29,21 +29,21 @@ table! {
 
 table! {
     enum_educations (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         label -> Text,
     }
 }
 
 table! {
     enum_genders (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         label -> Text,
     }
 }
 
 table! {
     enum_places (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         label -> Text,
         region_id -> Integer,
     }
@@ -51,21 +51,21 @@ table! {
 
 table! {
     enum_regions (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         label -> Text,
     }
 }
 
 table! {
     enum_roles (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         label -> Text,
     }
 }
 
 table! {
     projects (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         label -> Text,
         badge -> Text,
     }
@@ -73,7 +73,7 @@ table! {
 
 table! {
     speakers (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         user_id -> Integer,
         project_id -> Integer,
         nickname -> Text,
@@ -86,7 +86,7 @@ table! {
 
 table! {
     users (id) {
-        id -> Nullable<Integer>,
+        id -> Integer,
         username -> Text,
         role_id -> Integer,
         badge -> Nullable<Text>,

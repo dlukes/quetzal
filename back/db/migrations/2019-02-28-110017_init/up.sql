@@ -8,7 +8,7 @@
 -- Roles {{{2
 
 create table enum_roles (
-  id integer primary key,
+  id integer primary key not null,
   label text unique not null
 );
 -- regular users can access only their own data, supervisors can access
@@ -19,7 +19,7 @@ insert into enum_roles (label) values ('regular'), ('supervisor'), ('admin');
 -- Genders {{{2
 
 create table enum_genders (
-  id integer primary key,
+  id integer primary key not null,
   label text unique not null
 );
 insert into enum_genders (label) values ('muž'), ('žena');
@@ -27,7 +27,7 @@ insert into enum_genders (label) values ('muž'), ('žena');
 -- Educations {{{2
 
 create table enum_educations (
-  id integer primary key,
+  id integer primary key not null,
   label text unique not null
 );
 insert into enum_educations (label) values ('ZŠ'), ('SŠ'), ('SOŠ'), ('VŠ');
@@ -35,7 +35,7 @@ insert into enum_educations (label) values ('ZŠ'), ('SŠ'), ('SOŠ'), ('VŠ');
 -- Regions {{{2
 
 create table enum_regions (
-  id integer primary key,
+  id integer primary key not null,
   label text unique not null
 );
 insert into enum_regions (label) values
@@ -54,7 +54,7 @@ insert into enum_regions (label) values
 -- Places {{{2
 
 create table enum_places (
-  id integer primary key,
+  id integer primary key not null,
   label text unique not null,
   region_id integer not null references enum_regions (id)
     on update cascade on delete restrict
@@ -81,7 +81,7 @@ create view view_geo as
 -- Project management {{{2
 
 create table users (
-  id integer primary key,
+  id integer primary key not null,
   username text unique not null,
   -- password text not null,
   -- email text not null,
@@ -99,7 +99,7 @@ create table users (
 -- projects to which speakers and documents belong, which may affect
 -- which metadata is collected
 create table projects (
-  id integer primary key,
+  id integer primary key not null,
   label text unique not null,
   -- for generating document labels
   badge text unique not null
@@ -107,14 +107,14 @@ create table projects (
 
 -- corpora to which documents can be assigned
 create table corpora (
-  id integer primary key,
+  id integer primary key not null,
   label text unique not null
 );
 
 -- Data {{{2
 
 create table speakers (
-  id integer primary key,
+  id integer primary key not null,
   user_id integer not null references users (id)
     on update cascade on delete restrict,
   project_id integer not null references projects (id)
@@ -130,7 +130,7 @@ create table speakers (
 );
 
 create table docs (
-  id integer primary key,
+  id integer primary key not null,
   project_id integer not null references projects (id)
     on update cascade on delete restrict,
   corpus_id integer references corpora (id)
