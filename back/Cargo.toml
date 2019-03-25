@@ -1,7 +1,7 @@
 [workspace]
 
 members = [
-  # "eaf",  # parsing and manipulation of EAF transcripts
+  "eaf",  # parsing and manipulation of EAF transcripts
   "db",   # sqlite db
   # "fs",   # file-system store for transcripts (git) and recordings
   # "cli",  # command line interface
