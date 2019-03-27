@@ -1,3 +1,54 @@
+use crate::tokenizer::TokenKind::*;
+
+struct Node;
+
+struct Mistake;
+
+struct Segment {
+    source: String,
+    nodes: Vec<Node>,
+    mistakes: Vec<Mistake>,
+}
+
+struct Parser {
+    current: usize,
+}
+
+impl Parser {
+    fn new() -> Self {
+        Self { current: 0 }
+    }
+
+    fn parse(&mut self, segment: crate::Segment) -> Segment {
+        self.current = 0;
+        let nodes = vec![];
+        let mistakes = vec![];
+        while let Some(node) = self.parse_node(&segment) {
+            nodes.push(node);
+        }
+        Segment {
+            source: segment.source,
+            nodes,
+            mistakes,
+        }
+    }
+
+    fn parse_node(&mut self, segment: &crate::Segment) -> Option<Node> {
+        let token = segment.tokens.get(self.current)?;
+        self.current += 1;
+        match token.kind {
+            Whitespace => self.parse_node(segment),
+            NonWhitespace => self.parse_non_whitespace(token),
+            OpenRound => ,
+            CloseRound => ,
+            OpenSquare => ,
+            CloseSquare => ,
+            OpenAngle => ,
+            CloseAngle => ,
+        }
+    }
+}
+
 // type StartIndex = usize;
 
 // enum ParsingState {
