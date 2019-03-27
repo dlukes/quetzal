@@ -5,64 +5,34 @@ use unicode_segmentation::UnicodeSegmentation;
 mod parser;
 mod tokenizer;
 
-#[derive(Debug)]
-enum TokenKind {
-    Word,
-    Special,
-    ParaCode,
-    Count,
-    OpenRound,
-    CloseRound,
-    OpenSquare,
-    CloseSquare,
-    OpenAngle,
-    CloseAngle,
-    OpenCurly,
-    CloseCurly,
-    UnexpectedGrapheme,
-}
+use crate::tokenizer::Token;
 
 #[derive(Debug)]
-struct Token {
-    kind: TokenKind,
-    start: usize,
-    end: usize,
-}
-
-impl Token {
-    fn new(kind: TokenKind, start: usize, end: usize) -> Self {
-        Token { kind, start, end }
-    }
-}
-
-#[derive(Debug)]
-struct Segment {
+pub struct Segment {
+    source: String,
     tokens: Vec<Token>,
-    text: String,
 }
 
 impl Segment {
-    fn new(text: &str) -> Self {
-        Segment {
-            tokens: vec![],
-            text: text.to_owned(),
-        }
+    fn as_str(&self, token: &Token) -> &str {
+        &self.source[token.start..token.end]
     }
 
-    fn push_token(&mut self, kind: TokenKind, start: usize, end: usize) {
-        self.tokens.push(Token::new(kind, start, end));
+    fn highlight(&self, token: &Token) -> String {
+        let space_len = self.source[..token.start].graphemes(true).count();
+        let caret_len = self.source[token.start..token.end].graphemes(true).count();
+        let highlight: String = repeat(' ')
+            .take(space_len)
+            .chain(repeat('^').take(caret_len))
+            .collect();
+        format!("{}\n{}", self.source, highlight)
     }
 
     fn debug(&self) {
         for tok in &self.tokens {
-            let space_len = self.text[..tok.start].graphemes(true).count();
-            let caret_len = self.text[tok.start..tok.end].graphemes(true).count();
-            let highlight: String = repeat(' ')
-                .take(space_len)
-                .chain(repeat('^').take(caret_len))
-                .collect();
+            let highlight = self.highlight(tok);
             eprintln!("Token: {:?}", tok);
-            eprintln!("{}", self.text);
+            eprintln!("{}", self.source);
             eprintln!("{}", highlight);
         }
     }

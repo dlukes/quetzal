@@ -1,194 +1,74 @@
-use std::collections::HashSet;
-
 use lazy_static::lazy_static;
-use regex::Regex;
-use unicode_segmentation::UnicodeSegmentation;
+use regex::{Match, Regex, RegexBuilder};
 
-use crate::{Segment, TokenKind};
+use crate::Segment;
+
+#[derive(Debug, PartialEq)]
+pub enum TokenKind {
+    Whitespace,
+    NonWhitespace,
+    OpenRound,
+    CloseRound,
+    OpenSquare,
+    CloseSquare,
+    OpenAngle,
+    CloseAngle,
+}
+
 use TokenKind::*;
 
-lazy_static! {
-    static ref WHITESPACE: Regex = Regex::new(r"\s+").unwrap();
+#[derive(Debug)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub start: usize,
+    pub end: usize,
 }
 
-enum TokenizingState {
-    Delim,
-    InsideWord,
-    InsideSpecial,
-    OpenBracket,
-    CloseBracket,
-}
-
-use TokenizingState::*;
-
-struct Conf {
-    word_graphemes: HashSet<String>,
-    delim_graphemes: HashSet<String>,
-    special_toks: HashSet<String>,
-    special_graphemes: HashSet<String>,
-    para_codes: HashSet<String>,
-}
-
-fn str2graphemes(string: &str) -> HashSet<String> {
-    string.graphemes(true).map(|g| g.to_owned()).collect()
-}
-
-fn str2substrings(string: &str) -> HashSet<String> {
-    string.split_whitespace().map(|s| s.to_owned()).collect()
-}
-
-impl Conf {
-    fn new(
-        word_graphemes: &str,
-        delim_graphemes: &str,
-        special_toks: &str,
-        para_codes: &str,
-    ) -> Self {
-        let word_graphemes = str2graphemes(word_graphemes);
-        let mut delim_graphemes = str2graphemes(delim_graphemes);
-        delim_graphemes.insert(" ".to_owned());
-        let special_graphemes: HashSet<String> = special_toks
-            .graphemes(true)
-            .filter(|g| !WHITESPACE.is_match(g))
-            .map(|g| g.to_owned())
-            .collect();
-        let special_toks = str2substrings(special_toks);
-        let para_codes = str2substrings(para_codes);
-        // let special_toks: HashSet<String> = special_toks.into_iter().collect();
-        // let para_codes
-        // let special_tok_chars: HashSet<char> =
-        //     special_toks.iter().flat_map(|s| s.chars()).collect();
-        Conf {
-            word_graphemes,
-            delim_graphemes,
-            special_toks,
-            special_graphemes,
-            para_codes,
-        }
-    }
-}
-
-struct Tokenizer<'a> {
-    conf: &'a Conf,
-    segment: Segment,
-    state: TokenizingState,
-    curr_tok_start: usize,
-}
-
-impl<'a> Tokenizer<'a> {
-    fn tokenize(text: &str, conf: &'a Conf) -> Segment {
-        // normalize whitespace for easier error reporting
-        let text = WHITESPACE.replace_all(text, " ");
-        let text = text.trim();
-        let mut tokenizer = Tokenizer {
-            conf,
-            segment: Segment::new(text),
-            state: Delim,
-            curr_tok_start: 0,
+impl<'t> From<Match<'t>> for Token {
+    fn from(mat: Match) -> Self {
+        let kind = match mat.as_str() {
+            "[" => OpenSquare,
+            "]" => CloseSquare,
+            "(" => OpenRound,
+            ")" => CloseRound,
+            "<" => OpenAngle,
+            ">" => CloseAngle,
+            " " => Whitespace,
+            _ => NonWhitespace,
         };
-        for ig in text.grapheme_indices(true) {
-            tokenizer.state = match tokenizer.state {
-                Delim => tokenizer.leave_delim(ig),
-                InsideWord => tokenizer.leave_inside_word(ig),
-                InsideSpecial => tokenizer.leave_inside_special(ig),
-                OpenBracket => tokenizer.leave_open_bracket(ig),
-                CloseBracket => tokenizer.leave_close_bracket(ig),
-            }
+        Self {
+            kind,
+            start: mat.start(),
+            end: mat.end(),
         }
-        tokenizer.segment
     }
+}
 
-    fn leave_delim(&mut self, (index, grapheme): (usize, &str)) -> TokenizingState {
-        match grapheme {
-            "[" => {
-                self.segment.push_token(OpenSquare, index, index + 1);
-                OpenBracket
-            }
-            // "<" =>
-            _ if self.conf.special_graphemes.contains(grapheme) => {
-                self.curr_tok_start = index;
-                InsideSpecial
-            }
-            // TODO: probably get rid of this, it can't occur since we normalize whitespace
-            // _ if chr.is_whitespace() => Whitespace,
-            _ if self.conf.word_graphemes.contains(grapheme) => {
-                self.curr_tok_start = index;
-                InsideWord
-            }
-            _ => {
-                self.segment
-                    .push_token(UnexpectedGrapheme, index, index + grapheme.len());
-                Delim
-            }
-        }
+pub fn tokenize(source: &str) -> Segment {
+    lazy_static! {
+        static ref WHITESPACE_RE: Regex = Regex::new(r"\s+").unwrap();
+        static ref TOKENIZER_RE: Regex = RegexBuilder::new(
+            r#"
+                [
+                    \[\]\(\)<>
+                ]
+            |
+                \s+
+            |
+                [^
+                    \[\]\(\)<>
+                    \s
+                ]+
+        "#
+        )
+        .ignore_whitespace(true)
+        .build()
+        .unwrap();
     }
-
-    fn leave_inside_word(&mut self, (index, grapheme): (usize, &str)) -> TokenizingState {
-        if self.conf.word_graphemes.contains(grapheme) {
-            return InsideWord;
-        }
-        self.segment.push_token(Word, self.curr_tok_start, index);
-        match grapheme {
-            "]" => {
-                self.segment.push_token(CloseSquare, index, index + 1);
-                CloseBracket
-            }
-            _ if self.conf.delim_graphemes.contains(grapheme) => Delim,
-            _ => {
-                self.segment
-                    .push_token(UnexpectedGrapheme, index, index + grapheme.len());
-                Delim
-            }
-        }
-    }
-
-    fn leave_inside_special(&mut self, (index, grapheme): (usize, &str)) -> TokenizingState {
-        if self.conf.special_graphemes.contains(grapheme) {
-            return InsideSpecial;
-        }
-        self.segment.push_token(Special, self.curr_tok_start, index);
-        match grapheme {
-            "]" => {
-                self.segment.push_token(CloseSquare, index, index + 1);
-                CloseBracket
-            }
-            _ if self.conf.delim_graphemes.contains(grapheme) => Delim,
-            _ => {
-                self.segment
-                    .push_token(UnexpectedGrapheme, index, index + grapheme.len());
-                Delim
-            }
-        }
-    }
-
-    fn leave_open_bracket(&mut self, (index, grapheme): (usize, &str)) -> TokenizingState {
-        match grapheme {
-            _ if self.conf.special_graphemes.contains(grapheme) => {
-                self.curr_tok_start = index;
-                InsideSpecial
-            }
-            _ if self.conf.word_graphemes.contains(grapheme) => {
-                self.curr_tok_start = index;
-                InsideWord
-            }
-            _ => {
-                self.segment
-                    .push_token(UnexpectedGrapheme, index, index + grapheme.len());
-                Delim
-            }
-        }
-    }
-
-    fn leave_close_bracket(&mut self, (index, grapheme): (usize, &str)) -> TokenizingState {
-        match grapheme {
-            _ if self.conf.delim_graphemes.contains(grapheme) => Delim,
-            _ => {
-                self.segment
-                    .push_token(UnexpectedGrapheme, index, index + grapheme.len());
-                InsideWord
-            }
-        }
-    }
+    // normalize whitespace
+    let source = WHITESPACE_RE.replace_all(source.trim(), " ").into_owned();
+    let tokens = TOKENIZER_RE.find_iter(&source).map(From::from).collect();
+    Segment { source, tokens }
 }
 
 #[cfg(test)]
@@ -196,30 +76,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tokenizer() {
-        let conf1 = Conf::new("fočbarzqux", " ", "@", "");
-        let conf2 = Conf::new("fočbarzqux", " ", "@", "");
-        let seg = Tokenizer::tokenize("foo [čar @ baz] qux", &conf1);
-        seg.debug();
-        eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo [čar @ baz] qux", &conf2);
-        seg.debug();
-        eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo [bar@ baz] qux", &conf2);
-        seg.debug();
-        eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo[bar @ baz] qux", &conf2);
-        seg.debug();
-        eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo [bar @ baz]qux", &conf2);
-        seg.debug();
-        eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo[bar @ baz ]qux", &conf2);
-        seg.debug();
-        eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo[ bar @ baz ]qux", &conf2);
-        seg.debug();
-        eprintln!("=======================================================");
-        assert!(false);
+    fn tokenize_square_brackets() {
+        let seg = tokenize("foo [bar] baz");
+        assert_eq!(seg.tokens[2].kind, OpenSquare);
+        assert_eq!(seg.tokens[4].kind, CloseSquare);
+    }
+
+    #[test]
+    fn tokenize_round_brackets() {
+        let seg = tokenize("foo (bar) baz");
+        assert_eq!(seg.tokens[2].kind, OpenRound);
+        assert_eq!(seg.tokens[4].kind, CloseRound);
+    }
+
+    #[test]
+    fn tokenize_angle_brackets() {
+        let seg = tokenize("foo <bar> baz");
+        assert_eq!(seg.tokens[2].kind, OpenAngle);
+        assert_eq!(seg.tokens[4].kind, CloseAngle);
+    }
+
+    fn compare_tokens(source: &str, tokens: &[&str]) {
+        let segment = tokenize(source);
+        assert_eq!(
+            segment.tokens.len(),
+            tokens.len(),
+            "Number of tokens differs."
+        );
+        for (tokenized, reference) in segment.tokens.iter().zip(tokens.iter()) {
+            let tokenized = segment.as_str(tokenized);
+            eprintln!("tokenized = {:?} :: reference = {:?}", tokenized, reference);
+            assert_eq!(&tokenized, reference, "Token values as str differ.");
+        }
+    }
+
+    #[test]
+    fn compare_nice() {
+        compare_tokens(
+            "čáp [dřepí @ v] .. louži",
+            &[
+                "čáp", " ", "[", "dřepí", " ", "@", " ", "v", "]", " ", "..", " ", "louži",
+            ],
+        );
+    }
+
+    #[test]
+    fn compare_not_nice() {
+        compare_tokens(
+            "foo][ bar(baz)..",
+            &["foo", "]", "[", " ", "bar", "(", "baz", ")", ".."],
+        );
     }
 }
