@@ -33,22 +33,27 @@ fn str2graphemes(string: &str) -> HashSet<String> {
     string.graphemes(true).map(|g| g.to_owned()).collect()
 }
 
+fn str2substrings(string: &str) -> HashSet<String> {
+    string.split_whitespace().map(|s| s.to_owned()).collect()
+}
+
 impl Conf {
     fn new(
         word_graphemes: &str,
         delim_graphemes: &str,
-        special_toks: Vec<String>,
-        para_codes: Vec<String>,
+        special_toks: &str,
+        para_codes: &str,
     ) -> Self {
         let word_graphemes = str2graphemes(word_graphemes);
-        let delim_graphemes = str2graphemes(delim_graphemes);
+        let mut delim_graphemes = str2graphemes(delim_graphemes);
+        delim_graphemes.insert(" ".to_owned());
         let special_graphemes: HashSet<String> = special_toks
-            .iter()
-            .flat_map(|s| s.graphemes(true))
+            .graphemes(true)
+            .filter(|g| !WHITESPACE.is_match(g))
             .map(|g| g.to_owned())
             .collect();
-        let special_toks: HashSet<String> = special_toks.into_iter().collect();
-        let para_codes: HashSet<String> = para_codes.into_iter().collect();
+        let special_toks = str2substrings(special_toks);
+        let para_codes = str2substrings(para_codes);
         // let special_toks: HashSet<String> = special_toks.into_iter().collect();
         // let para_codes
         // let special_tok_chars: HashSet<char> =
@@ -84,7 +89,8 @@ impl<'a> Tokenizer<'a> {
         for ig in text.grapheme_indices(true) {
             tokenizer.state = match tokenizer.state {
                 Delim => tokenizer.leave_delim(ig),
-                InsideWord => tokenizer.leave_inside_token(ig),
+                InsideWord => tokenizer.leave_inside_word(ig),
+                InsideSpecial => tokenizer.leave_inside_special(ig),
                 OpenBracket => tokenizer.leave_open_bracket(ig),
                 CloseBracket => tokenizer.leave_close_bracket(ig),
             }
@@ -117,11 +123,30 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn leave_inside_token(&mut self, (index, grapheme): (usize, &str)) -> TokenizingState {
+    fn leave_inside_word(&mut self, (index, grapheme): (usize, &str)) -> TokenizingState {
         if self.conf.word_graphemes.contains(grapheme) {
             return InsideWord;
         }
         self.segment.push_token(Word, self.curr_tok_start, index);
+        match grapheme {
+            "]" => {
+                self.segment.push_token(CloseSquare, index, index + 1);
+                CloseBracket
+            }
+            _ if self.conf.delim_graphemes.contains(grapheme) => Delim,
+            _ => {
+                self.segment
+                    .push_token(UnexpectedGrapheme, index, index + grapheme.len());
+                Delim
+            }
+        }
+    }
+
+    fn leave_inside_special(&mut self, (index, grapheme): (usize, &str)) -> TokenizingState {
+        if self.conf.special_graphemes.contains(grapheme) {
+            return InsideSpecial;
+        }
+        self.segment.push_token(Special, self.curr_tok_start, index);
         match grapheme {
             "]" => {
                 self.segment.push_token(CloseSquare, index, index + 1);
@@ -154,12 +179,12 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn leave_close_bracket(&mut self, (index, chr): (usize, char)) -> TokenizingState {
-        match chr {
-            _ if chr.is_whitespace() => Delim,
+    fn leave_close_bracket(&mut self, (index, grapheme): (usize, &str)) -> TokenizingState {
+        match grapheme {
+            _ if self.conf.delim_graphemes.contains(grapheme) => Delim,
             _ => {
                 self.segment
-                    .push_token(UnexpectedGrapheme, index, index + chr.len_utf8());
+                    .push_token(UnexpectedGrapheme, index, index + grapheme.len());
                 InsideWord
             }
         }
@@ -172,25 +197,27 @@ mod tests {
 
     #[test]
     fn tokenizer() {
-        let seg = Tokenizer::tokenize("foo [čar @ baz] qux", "fočbarzqux");
+        let conf1 = Conf::new("fočbarzqux", " ", "@", "");
+        let conf2 = Conf::new("fočbarzqux", " ", "@", "");
+        let seg = Tokenizer::tokenize("foo [čar @ baz] qux", &conf1);
         seg.debug();
         eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo [čar @ baz] qux", "fobarzqux");
+        let seg = Tokenizer::tokenize("foo [čar @ baz] qux", &conf2);
         seg.debug();
         eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo [bar@ baz] qux", "fobarzqux");
+        let seg = Tokenizer::tokenize("foo [bar@ baz] qux", &conf2);
         seg.debug();
         eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo[bar @ baz] qux", "fobarzqux");
+        let seg = Tokenizer::tokenize("foo[bar @ baz] qux", &conf2);
         seg.debug();
         eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo [bar @ baz]qux", "fobarzqux");
+        let seg = Tokenizer::tokenize("foo [bar @ baz]qux", &conf2);
         seg.debug();
         eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo[bar @ baz ]qux", "fobarzqux");
+        let seg = Tokenizer::tokenize("foo[bar @ baz ]qux", &conf2);
         seg.debug();
         eprintln!("=======================================================");
-        let seg = Tokenizer::tokenize("foo[ bar @ baz ]qux", "fobarzqux");
+        let seg = Tokenizer::tokenize("foo[ bar @ baz ]qux", &conf2);
         seg.debug();
         eprintln!("=======================================================");
         assert!(false);
