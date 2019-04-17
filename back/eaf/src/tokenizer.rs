@@ -47,8 +47,8 @@ impl<'t> From<Match<'t>> for Token {
 
 #[derive(Debug)]
 pub struct Segment {
-    source: String,
-    tokens: Vec<Token>,
+    pub source: String,
+    pub tokens: Vec<Token>,
 }
 
 impl Segment {
