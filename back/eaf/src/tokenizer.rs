@@ -1,7 +1,8 @@
+use std::iter::repeat;
+
 use lazy_static::lazy_static;
 use regex::{Match, Regex, RegexBuilder};
-
-use crate::Segment;
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Debug, PartialEq)]
 pub enum TokenKind {
@@ -27,10 +28,10 @@ pub struct Token {
 impl<'t> From<Match<'t>> for Token {
     fn from(mat: Match) -> Self {
         let kind = match mat.as_str() {
-            "[" => OpenSquare,
-            "]" => CloseSquare,
             "(" => OpenRound,
             ")" => CloseRound,
+            "[" => OpenSquare,
+            "]" => CloseSquare,
             "<" => OpenAngle,
             ">" => CloseAngle,
             " " => Whitespace,
@@ -44,17 +45,51 @@ impl<'t> From<Match<'t>> for Token {
     }
 }
 
+#[derive(Debug)]
+pub struct Segment {
+    source: String,
+    tokens: Vec<Token>,
+}
+
+impl Segment {
+    fn as_str(&self, token: &Token) -> &str {
+        &self.source[token.start..token.end]
+    }
+
+    fn highlight(&self, token: &Token) -> String {
+        let space_len = self.source[..token.start].graphemes(true).count();
+        let caret_len = self.source[token.start..token.end].graphemes(true).count();
+        let highlight: String = repeat(' ')
+            .take(space_len)
+            .chain(repeat('^').take(caret_len))
+            .collect();
+        format!("{}\n{}", self.source, highlight)
+    }
+
+    fn debug(&self) {
+        for tok in &self.tokens {
+            let highlight = self.highlight(tok);
+            eprintln!("Token: {:?}", tok);
+            eprintln!("{}", self.source);
+            eprintln!("{}", highlight);
+        }
+    }
+}
+
 pub fn tokenize(source: &str) -> Segment {
     lazy_static! {
         static ref WHITESPACE_RE: Regex = Regex::new(r"\s+").unwrap();
         static ref TOKENIZER_RE: Regex = RegexBuilder::new(
             r#"
+            # paired delimiter token:
                 [
                     \[\]\(\)<>
                 ]
             |
+            # whitespace:
                 \s+
             |
+            # non-whitespace:
                 [^
                     \[\]\(\)<>
                     \s

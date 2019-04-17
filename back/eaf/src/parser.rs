@@ -1,4 +1,4 @@
-use crate::tokenizer::TokenKind::*;
+use crate::tokenizer::TokenKind;
 
 struct Node;
 
@@ -10,43 +10,122 @@ struct Segment {
     mistakes: Vec<Mistake>,
 }
 
+enum ParsingState {
+    Whitespace,
+    NonWhitespace,
+    OpenRound,
+    CloseRound,
+    OpenSquare,
+    CloseSquare,
+    OpenAngle,
+    CloseAngle,
+    AngleParam,
+    Invalid,
+}
+
 struct Parser {
     current: usize,
+    state: ParsingState,
+    nodes: Vec<Node>,
+    mistakes: Vec<Mistake>,
 }
 
 impl Parser {
     fn new() -> Self {
-        Self { current: 0 }
+        Self {
+            current: 0,
+            state: ParsingState::Whitespace,
+            nodes: vec![],
+            mistakes: vec![],
+        }
     }
 
     fn parse(&mut self, segment: crate::Segment) -> Segment {
         self.current = 0;
-        let nodes = vec![];
-        let mistakes = vec![];
-        while let Some(node) = self.parse_node(&segment) {
-            nodes.push(node);
+        let tokens_length = segment.tokens.len();
+        while self.current < tokens_length {
+            self.state = match &self.state {
+                ParsingState::Whitespace => self.leave_whitespace(&segment),
+                ParsingState::NonWhitespace => self.leave_non_whitespace(&segment),
+            }
         }
-        Segment {
-            source: segment.source,
-            nodes,
-            mistakes,
+        // while let Some(node) = self.parse_node(&segment) {
+        //     nodes.push(node);
+        // }
+        // Segment {
+        //     source: segment.source,
+        //     nodes,
+        //     mistakes,
+        // }
+        unimplemented!()
+    }
+
+    fn leave_whitespace(&mut self, segment: &crate::Segment) -> ParsingState {
+        let token = &segment.tokens[self.current];
+        match token.kind {
+            // shouldn't happen since we normalize whitespace but for good measure
+            TokenKind::Whitespace => ParsingState::Whitespace,
+            TokenKind::NonWhitespace => {
+                self.consume_non_whitespace(token, segment);
+                ParsingState::NonWhitespace
+            }
+            TokenKind::OpenRound => {
+                self.consume_open_round(token);
+                ParsingState::OpenRound
+            }
+            TokenKind::OpenSquare => {
+                self.consume_open_square(token);
+                ParsingState::OpenSquare
+            }
+            TokenKind::OpenAngle => {
+                self.consume_open_angle(token);
+                ParsingState::OpenAngle
+            }
+            _ => {
+                self.mistakes.push(Mistake {});
+                ParsingState::Invalid
+            }
         }
     }
 
-    fn parse_node(&mut self, segment: &crate::Segment) -> Option<Node> {
-        let token = segment.tokens.get(self.current)?;
-        self.current += 1;
+    fn leave_non_whitespace(&mut self, segment: &crate::Segment) -> ParsingState {
+        let token = &segment.tokens[self.current];
         match token.kind {
-            Whitespace => self.parse_node(segment),
-            NonWhitespace => self.parse_non_whitespace(token),
-            OpenRound => ,
-            CloseRound => ,
-            OpenSquare => ,
-            CloseSquare => ,
-            OpenAngle => ,
-            CloseAngle => ,
+            TokenKind::Whitespace => ParsingState::Whitespace,
+            TokenKind::CloseRound => {
+                self.consume_close_round(token);
+                ParsingState::CloseRound
+            }
+            TokenKind::CloseSquare => {
+                self.consume_close_square(token);
+                ParsingState::CloseSquare
+            }
+            TokenKind::CloseAngle => {
+                self.consume_close_angle(token);
+                ParsingState::CloseAngle
+            }
+            _ => {
+                self.mistakes.push(Mistake {});
+                ParsingState::Invalid
+            }
         }
     }
+}
+
+    // fn parse_node(&mut self, segment: &crate::Segment) -> Option<Node> {
+    //     let token = segment.tokens.get(self.current)?;
+    //     self.current += 1;
+    //     match token.kind {
+    //         Whitespace => self.parse_node(segment),
+    //         NonWhitespace => self.parse_non_whitespace(token),
+    //         OpenRound => ,
+    //         CloseRound => ,
+    //         OpenSquare => ,
+    //         CloseSquare => ,
+    //         OpenAngle => ,
+    //         CloseAngle => ,
+    //     }
+    // }
 }
 
 // type StartIndex = usize;
