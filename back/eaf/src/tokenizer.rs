@@ -1,10 +1,22 @@
+//! Detect token boundaries in transcribed segment.
+//!
+//! Tokenization is relatively dumb, it just divides the input text into fairly
+//! simple token categories (cf. `TokenKind`). In particular, it doesn't
+//! attempt to detect any mistakes, not even whether non-whitespace tokens
+//! consist of allowed sequences of characters. This is all done as part of
+//! parsing, so that all mistakes are collected at one point, and also so that
+//! tokenization errors don't prevent further processing, because ideally, we
+//! want to inform about as many errors as possible at the same time.
+//!
+//! Whitespace is normalized prior to tokenization, as this isn't something
+//! we'd want people to fix by hand.
 use std::iter::repeat;
 
 use lazy_static::lazy_static;
 use regex::{Match, Regex, RegexBuilder};
 use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TokenKind {
     Whitespace,
     NonWhitespace,

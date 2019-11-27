@@ -1,3 +1,8 @@
+//! Check whether sequence of tokens in segment is structurally valid.
+//!
+//! This is where *all* kinds of mistakes are detected and recorded. If there
+//! are any, the user will thus get a full list of what's wrong, so that they
+//! can fix everything in one go.
 use crate::tokenizer::{self, Token, TokenKind};
 
 struct Node;
@@ -8,11 +13,6 @@ struct Parser {
     source: String,
     tokens: Vec<Token>,
     current: usize,
-    nodes: Vec<Node>,
-    mistakes: Vec<Mistake>,
-}
-
-struct Segment {
     nodes: Vec<Node>,
     mistakes: Vec<Mistake>,
 }
@@ -33,15 +33,21 @@ impl Parser {
         unimplemented!()
     }
 
-    fn get_current(&self) -> Token {
-        self.tokens[self.current]
+    fn get_current(&self) -> &Token {
+        &self.tokens[self.current]
+    }
+
+    fn get_kind(&self, index: usize) -> TokenKind {
+        self.tokens
+            .get(index)
+            .map_or(TokenKind::Whitespace, |token| token.kind.clone())
     }
 
     fn step(&mut self) {
         let current = &self.tokens[self.current];
         match current.kind {
             TokenKind::Whitespace => (),
-            TokenKind::NonWhitespace => self.parse_non_whitespace(),
+            TokenKind::NonWhitespace => self.parse_word(),
             TokenKind::OpenRound => self.parse_open_round(),
             TokenKind::CloseRound => self.parse_close_round(),
             TokenKind::OpenSquare => self.parse_open_square(),
@@ -51,5 +57,33 @@ impl Parser {
         }
     }
 
-    fn parse_non_whitespace(&mut self) {}
+    fn parse_word(&mut self) {
+        // TODO test if actually consists of word chars
+    }
+    fn parse_open_round(&mut self) {
+        // TODO can contain regular word tokens (cf. above) OR one number
+    }
+    fn parse_close_round(&mut self) {}
+    fn parse_open_square(&mut self) {}
+    fn parse_close_square(&mut self) {}
+    fn parse_open_angle(&mut self) {
+        // TODO test if followed by allowed meta/anom two-letter code(s)
+    }
+    fn parse_close_angle(&mut self) {}
+}
+
+struct Segment {
+    nodes: Vec<Node>,
+    mistakes: Vec<Mistake>,
+}
+
+impl Segment {
+    fn has_mistakes(&self) -> bool {
+        self.mistakes.len() > 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 }
