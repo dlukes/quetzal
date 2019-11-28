@@ -9,5 +9,12 @@
 		{
 			"path": "."
 		}
-	]
+	],
+	"settings": {
+		// the root directory has no Cargo.toml
+		"rust-client.nestedMultiRootConfigInOutermost": false,
+		// this should allow us to add individual crates as separate folders
+		// above, if we so wish
+		"rust-client.enableMultiProjectSetup": true
+	}
 }
