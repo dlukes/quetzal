@@ -4,6 +4,8 @@ import Browser
 import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes exposing (..)
+import Http
+import Json.Decode as D
 import Url
 
 
@@ -57,6 +59,7 @@ init _ url key =
 type Msg
     = LinkClicked Browser.UrlRequest
     | UrlChanged Url.Url
+    | GotDocList (Result Http.Error DocList)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -71,7 +74,10 @@ update msg model =
                     ( model, Nav.load href )
 
         UrlChanged url ->
-            ( { model | url = url }, Cmd.none )
+            ( { model | url = url }, getDocList )
+
+        GotDocList _ ->
+            ( model, Cmd.none )
 
 
 
@@ -105,3 +111,33 @@ view model =
 viewLink : String -> Html msg
 viewLink path =
     li [] [ a [ href path ] [ text path ] ]
+
+
+
+-- HTTP
+
+
+type alias Doc =
+    { id : String }
+
+
+type alias DocList =
+    List Doc
+
+
+getDocList : Cmd Msg
+getDocList =
+    Http.get
+        { url = "/api/documents"
+        , expect = Http.expectJson GotDocList docListDecoder
+        }
+
+
+docDecoder : D.Decoder Doc
+docDecoder =
+    D.map Doc <| D.field "id" D.string
+
+
+docListDecoder : D.Decoder DocList
+docListDecoder =
+    D.field "data" <| D.list docDecoder
