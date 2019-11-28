@@ -21,14 +21,14 @@ fn index() -> Html<String> {
 
 #[get("/<_path..>", format = "text/html")]
 fn frontend_ui(_path: Option<PathBuf>) -> Html<String> {
-    let main_html = include_str!("../../elm/target/main.html");
+    let main_html = include_str!("../../../front/src/main.html");
     Html(main_html.replace("MAIN_JS", "/main.js"))
 }
 
 // implement ?v=hash cache bypass
 #[get("/main.js", format = "application/javascript")]
 fn main_js() -> JavaScript<&'static str> {
-    JavaScript(include_str!("../../elm/target/main.js"))
+    JavaScript(include_str!("../../../front/target/main.js"))
 }
 
 // this is more correct...

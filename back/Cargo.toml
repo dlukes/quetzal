@@ -5,5 +5,5 @@ members = [
   "db",   # sqlite db
   # "fs",   # file-system store for transcripts (git) and recordings
   # "cli",  # command line interface
-  # "web",  # web interface
+  "web",  # web interface
 ]
