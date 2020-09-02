@@ -10,83 +10,10 @@
 //!
 //! Whitespace is normalized prior to tokenization, as this isn't something
 //! we'd want people to fix by hand.
-use std::iter::repeat;
-
 use lazy_static::lazy_static;
-use regex::{Match, Regex, RegexBuilder};
-use unicode_segmentation::UnicodeSegmentation;
+use regex::{Regex, RegexBuilder};
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum TokenKind {
-    Whitespace,
-    NonWhitespace,
-    OpenRound,
-    CloseRound,
-    OpenSquare,
-    CloseSquare,
-    OpenAngle,
-    CloseAngle,
-}
-
-use TokenKind::*;
-
-#[derive(Debug)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub start: usize,
-    pub end: usize,
-}
-
-impl<'t> From<Match<'t>> for Token {
-    fn from(mat: Match) -> Self {
-        let kind = match mat.as_str() {
-            "(" => OpenRound,
-            ")" => CloseRound,
-            "[" => OpenSquare,
-            "]" => CloseSquare,
-            "<" => OpenAngle,
-            ">" => CloseAngle,
-            " " => Whitespace,
-            _ => NonWhitespace,
-        };
-        Self {
-            kind,
-            start: mat.start(),
-            end: mat.end(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Segment {
-    pub source: String,
-    pub tokens: Vec<Token>,
-}
-
-impl Segment {
-    fn as_str(&self, token: &Token) -> &str {
-        &self.source[token.start..token.end]
-    }
-
-    fn highlight(&self, token: &Token) -> String {
-        let space_len = self.source[..token.start].graphemes(true).count();
-        let caret_len = self.source[token.start..token.end].graphemes(true).count();
-        let highlight: String = repeat(' ')
-            .take(space_len)
-            .chain(repeat('^').take(caret_len))
-            .collect();
-        format!("{}\n{}", self.source, highlight)
-    }
-
-    fn debug(&self) {
-        for tok in &self.tokens {
-            let highlight = self.highlight(tok);
-            eprintln!("Token: {:?}", tok);
-            eprintln!("{}", self.source);
-            eprintln!("{}", highlight);
-        }
-    }
-}
+use crate::Segment;
 
 pub fn tokenize(source: &str) -> Segment {
     lazy_static! {
@@ -115,12 +42,17 @@ pub fn tokenize(source: &str) -> Segment {
     // normalize whitespace
     let source = WHITESPACE_RE.replace_all(source.trim(), " ").into_owned();
     let tokens = TOKENIZER_RE.find_iter(&source).map(From::from).collect();
-    Segment { source, tokens }
+    Segment {
+        source,
+        tokens,
+        mistakes: vec![],
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TokenKind::*;
 
     #[test]
     fn tokenize_square_brackets() {
