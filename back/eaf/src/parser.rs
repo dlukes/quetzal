@@ -3,7 +3,26 @@
 //! This is where *all* kinds of mistakes are detected and recorded. If there
 //! are any, the user will thus get a full list of what's wrong, so that they
 //! can fix everything in one go.
+use regex::Regex;
+
 use crate::{DelimKind, Mistake, Segment, Token, TokenKind};
+
+pub struct ParserConfig {
+    after_angle_whitelist: Regex,
+}
+
+impl ParserConfig {
+    pub fn from_args<S>(after_angle_whitelist: &[S]) -> Self
+    where
+        S: std::borrow::Borrow<str>,
+    {
+        let aaw = after_angle_whitelist.join("|");
+        ParserConfig {
+            after_angle_whitelist: Regex::new(&format!(r#"\A(?:{})(?:_(?:{}))*\z"#, aaw, aaw))
+                .expect("invalid after angle whitelist regex"),
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Parser {
@@ -18,6 +37,7 @@ pub struct Parser {
 }
 
 impl Parser {
+    // pub fn parse(config: &ParserConfig, segment: Segment) -> Segment {
     pub fn parse(segment: Segment) -> Segment {
         let mut parser = Self {
             source: segment.source,
@@ -74,12 +94,9 @@ impl Parser {
 
     fn step(&mut self) {
         let current = &self.tokens[self.current];
-        // eprintln!("{:?}", current.kind);
         match current.kind {
-            // TODO: maybe just get rid of whitespace during tokenization?
-            // is it really sth we want to check and bother editors with
-            // fixing instead of just papering over possible inconsistencies?
-            TokenKind::Whitespace => self.current += 1,
+            // whitespace is removed by tokenizer
+            TokenKind::Whitespace => unreachable!(),
             TokenKind::NonWhitespace => self.parse_word(),
             TokenKind::OpenRound => self.parse_open_round(),
             TokenKind::CloseRound => self.parse_close_round(),
@@ -157,7 +174,8 @@ impl Parser {
     }
 
     fn parse_open_angle(&mut self) {
-        // TODO test if followed by allowed meta/anom/JO 2/3-letter code(s)
+        // TODO: test if followed by allowed meta/anom/JO 2/3-letter code(s)
+        // TODO: possibly sort and deduplicate the codes?
         if let Some(i) = self.angle_start {
             self.mistakes.push(Mistake::NestedDelim {
                 kind: DelimKind::Angle,
@@ -183,12 +201,46 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
+    use lazy_static::lazy_static;
+
     use super::*;
     use crate::tokenizer;
+
+    lazy_static! {
+        static ref CONFIG: ParserConfig = ParserConfig::from_args(&["SM"]);
+    }
+
+    #[test]
+    fn test_config() {
+        let pc = ParserConfig::from_args(&["SM", "SJ"]);
+        eprintln!("{}", pc.after_angle_whitelist.as_str());
+        assert!(pc.after_angle_whitelist.is_match("SM"));
+        assert!(pc.after_angle_whitelist.is_match("SJ"));
+        assert!(pc.after_angle_whitelist.is_match("SM_SJ"));
+        assert!(!pc.after_angle_whitelist.is_match("SMSJ"));
+        assert!(!pc.after_angle_whitelist.is_match("MJ"));
+        assert!(!pc.after_angle_whitelist.is_match(""));
+        assert!(!pc.after_angle_whitelist.is_match("_"));
+        assert!(!pc.after_angle_whitelist.is_match("_SM"));
+
+        let pc = ParserConfig::from_args(&["SM"]);
+        assert!(pc.after_angle_whitelist.is_match("SM"));
+        assert!(!pc.after_angle_whitelist.is_match(""));
+        assert!(!pc.after_angle_whitelist.is_match("_"));
+        assert!(!pc.after_angle_whitelist.is_match("_SM"));
+        assert!(!pc.after_angle_whitelist.is_match("SJ"));
+        assert!(!pc.after_angle_whitelist.is_match("SM_SJ"));
+    }
 
     #[test]
     fn test_all_fine() {
         let seg = Parser::parse(tokenizer::tokenize("čarala bonga máro"));
+        assert!(!seg.has_mistakes());
+    }
+
+    #[test]
+    fn test_all_fine_and_complicated() {
+        let seg = Parser::parse(tokenizer::tokenize("[čarala <SM bonga] (máro>)"));
         assert!(!seg.has_mistakes());
     }
 
@@ -207,32 +259,48 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_nested_round() {
-        let seg = Parser::parse(tokenizer::tokenize("(("));
-        assert!(seg.has_mistakes());
-        assert_eq!(seg.mistakes.len(), 2);
+    macro_rules! test_delims {
+        ($fname:ident, $kind:path, $source:expr) => {
+            #[test]
+            fn $fname() {
+                let seg = Parser::parse(tokenizer::tokenize($source));
+                dbg!(&seg);
+                assert_eq!(seg.mistakes.len(), 3, "Segment should have 3 mistakes.");
 
-        let m1 = &seg.mistakes[0];
-        if let Mistake::NestedDelim {
-            kind,
-            outermost_start,
-            at,
-        } = m1
-        {
-            assert_eq!(*kind, DelimKind::Round);
-            assert_eq!(*outermost_start, 0);
-            assert_eq!(*at, 1);
-        } else {
-            panic!("unexpected mistake: {:?}", m1);
-        }
+                let m1 = &seg.mistakes[0];
+                if let Mistake::ClosingUnopenedDelim { kind, at } = m1 {
+                    assert_eq!(*kind, $kind);
+                    assert_eq!(*at, 0);
+                } else {
+                    panic!("unexpected mistake at #1: {:?}", m1);
+                }
 
-        let m2 = &seg.mistakes[1];
-        if let Mistake::UnclosedDelim { kind, at } = m2 {
-            assert_eq!(*kind, DelimKind::Round);
-            assert_eq!(*at, 0);
-        } else {
-            panic!("unexpected mistake: {:?}", m1);
-        }
+                let m2 = &seg.mistakes[1];
+                if let Mistake::NestedDelim {
+                    kind,
+                    outermost_start,
+                    at,
+                } = m2
+                {
+                    assert_eq!(*kind, $kind);
+                    assert_eq!(*outermost_start, 1);
+                    assert_eq!(*at, 2);
+                } else {
+                    panic!("unexpected mistake at #2: {:?}", m2);
+                }
+
+                let m3 = &seg.mistakes[2];
+                if let Mistake::UnclosedDelim { kind, at } = m3 {
+                    assert_eq!(*kind, $kind);
+                    assert_eq!(*at, 1);
+                } else {
+                    panic!("unexpected mistake at #3: {:?}", m3);
+                }
+            }
+        };
     }
+
+    test_delims!(test_round, DelimKind::Round, ")((");
+    test_delims!(test_square, DelimKind::Square, "][[");
+    test_delims!(test_angle, DelimKind::Angle, "><<");
 }

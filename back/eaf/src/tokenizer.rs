@@ -13,7 +13,7 @@
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 
-use crate::Segment;
+use crate::{Segment, Token, TokenKind};
 
 pub fn tokenize(source: &str) -> Segment {
     lazy_static! {
@@ -41,7 +41,11 @@ pub fn tokenize(source: &str) -> Segment {
     }
     // normalize whitespace
     let source = WHITESPACE_RE.replace_all(source.trim(), " ").into_owned();
-    let tokens = TOKENIZER_RE.find_iter(&source).map(From::from).collect();
+    let tokens = TOKENIZER_RE
+        .find_iter(&source)
+        .map::<Token, _>(From::from)
+        .filter(|t| t.kind != TokenKind::Whitespace)
+        .collect();
     Segment {
         source,
         tokens,
@@ -57,22 +61,22 @@ mod tests {
     #[test]
     fn tokenize_square_brackets() {
         let seg = tokenize("foo [bar] baz");
-        assert_eq!(seg.tokens[2].kind, OpenSquare);
-        assert_eq!(seg.tokens[4].kind, CloseSquare);
+        assert_eq!(seg.tokens[1].kind, OpenSquare);
+        assert_eq!(seg.tokens[3].kind, CloseSquare);
     }
 
     #[test]
     fn tokenize_round_brackets() {
         let seg = tokenize("foo (bar) baz");
-        assert_eq!(seg.tokens[2].kind, OpenRound);
-        assert_eq!(seg.tokens[4].kind, CloseRound);
+        assert_eq!(seg.tokens[1].kind, OpenRound);
+        assert_eq!(seg.tokens[3].kind, CloseRound);
     }
 
     #[test]
     fn tokenize_angle_brackets() {
         let seg = tokenize("foo <bar> baz");
-        assert_eq!(seg.tokens[2].kind, OpenAngle);
-        assert_eq!(seg.tokens[4].kind, CloseAngle);
+        assert_eq!(seg.tokens[1].kind, OpenAngle);
+        assert_eq!(seg.tokens[3].kind, CloseAngle);
     }
 
     fn compare_tokens(source: &str, tokens: &[&str]) {
@@ -92,9 +96,9 @@ mod tests {
     #[test]
     fn compare_nice() {
         compare_tokens(
-            "čáp [dřepí @ v] .. louži",
+            "čáp [dřepí @ <SM v] .. (louži>)",
             &[
-                "čáp", " ", "[", "dřepí", " ", "@", " ", "v", "]", " ", "..", " ", "louži",
+                "čáp", "[", "dřepí", "@", "<", "SM", "v", "]", "..", "(", "louži", ">", ")",
             ],
         );
     }
@@ -103,7 +107,7 @@ mod tests {
     fn compare_not_nice() {
         compare_tokens(
             "foo][ bar(baz)..",
-            &["foo", "]", "[", " ", "bar", "(", "baz", ")", ".."],
+            &["foo", "]", "[", "bar", "(", "baz", ")", ".."],
         );
     }
 }
