@@ -3,10 +3,15 @@
 //! This is where *all* kinds of mistakes are detected and recorded. If there
 //! are any, the user will thus get a full list of what's wrong, so that they
 //! can fix everything in one go.
+//!
+//! Currently, the list of tokens is more or less just validated, not
+//! transformed into a richer data structure, but that might change in the
+//! future.
 use regex::Regex;
 
-use crate::{DelimKind, Mistake, Segment, Token, TokenKind};
+use crate::{DelimKind, Mistake, Node, Parsed, Token, TokenKind, Tokenized};
 
+#[derive(Debug)]
 pub struct ParserConfig {
     after_angle_whitelist: Regex,
 }
@@ -25,10 +30,13 @@ impl ParserConfig {
 }
 
 #[derive(Debug)]
-pub struct Parser {
+pub struct Parser<'c> {
+    config: &'c ParserConfig,
+
     source: String,
     tokens: Vec<Token>,
     current: usize,
+    nodes: Vec<Node>,
     mistakes: Vec<Mistake>,
 
     round_start: Option<usize>,
@@ -36,14 +44,16 @@ pub struct Parser {
     angle_start: Option<usize>,
 }
 
-impl Parser {
-    // pub fn parse(config: &ParserConfig, segment: Segment) -> Segment {
-    pub fn parse(segment: Segment) -> Segment {
+impl<'c> Parser<'c> {
+    pub fn parse(config: &'c ParserConfig, segment: Tokenized) -> Parsed {
         let mut parser = Self {
+            config,
+
             source: segment.source,
             tokens: segment.tokens,
-            mistakes: segment.mistakes,
             current: 0,
+            mistakes: vec![],
+            nodes: vec![],
 
             round_start: None,
             square_start: None,
@@ -73,24 +83,11 @@ impl Parser {
             });
         }
 
-        Segment {
-            source: parser.source,
-            tokens: parser.tokens,
+        Parsed {
+            nodes: parser.nodes,
             mistakes: parser.mistakes,
         }
     }
-
-    // TODO: remove?
-    // fn get_current(&self) -> &Token {
-    //     &self.tokens[self.current]
-    // }
-
-    // TODO: remove?
-    // fn get_kind(&self, index: usize) -> TokenKind {
-    //     self.tokens
-    //         .get(index)
-    //         .map_or(TokenKind::Whitespace, |token| token.kind)
-    // }
 
     fn step(&mut self) {
         let current = &self.tokens[self.current];
@@ -107,16 +104,21 @@ impl Parser {
         }
     }
 
+    fn get_token<'s>(current: usize, tokens: &[Token], source: &'s str) -> (Token, &'s str) {
+        let token = tokens[current];
+        let token_str = &source[token.start..token.end];
+        (token, token_str)
+    }
+
     fn parse_word(&mut self) {
-        let token = &self.tokens[self.current];
-        let token_str = &self.source[token.start..token.end];
+        let (token, token_str) = Parser::get_token(self.current, &self.tokens, &self.source);
         for (i, c) in token_str.char_indices() {
             // TODO: this is just an approximate placeholder test
             if !c.is_alphanumeric() {
                 self.mistakes.push(Mistake::BadChar {
-                    token: *token,
                     char: c,
-                    at: i,
+                    char_at: i,
+                    at: self.current,
                 });
             }
             // TODO: plain numbers should only be allowed inside parens
@@ -174,8 +176,6 @@ impl Parser {
     }
 
     fn parse_open_angle(&mut self) {
-        // TODO: test if followed by allowed meta/anom/JO 2/3-letter code(s)
-        // TODO: possibly sort and deduplicate the codes?
         if let Some(i) = self.angle_start {
             self.mistakes.push(Mistake::NestedDelim {
                 kind: DelimKind::Angle,
@@ -185,6 +185,25 @@ impl Parser {
         } else {
             self.angle_start = Some(self.current);
         }
+        self.current += 1;
+
+        let (token, token_str) = Parser::get_token(self.current, &self.tokens, &self.source);
+        let mut codes = vec![];
+        for code in token_str.split('_') {
+            let code = code.to_owned();
+            if self.config.after_angle_whitelist.is_match(code) {
+                if !codes.contains(&code) {
+                    codes.push(code);
+                }
+            } else {
+                self.mistakes.push(Mistake::BadSymbol {
+                    symbol: code,
+                    at: self.current,
+                });
+            }
+        }
+        codes.sort();
+        self.nodes.push(Node::AttrList(codes));
         self.current += 1;
     }
 
@@ -213,7 +232,8 @@ mod tests {
     #[test]
     fn test_config() {
         let pc = ParserConfig::from_args(&["SM", "SJ"]);
-        eprintln!("{}", pc.after_angle_whitelist.as_str());
+        eprintln!("regex: {}", pc.after_angle_whitelist.as_str());
+
         assert!(pc.after_angle_whitelist.is_match("SM"));
         assert!(pc.after_angle_whitelist.is_match("SJ"));
         assert!(pc.after_angle_whitelist.is_match("SM_SJ"));
@@ -234,19 +254,19 @@ mod tests {
 
     #[test]
     fn test_all_fine() {
-        let seg = Parser::parse(tokenizer::tokenize("čarala bonga máro"));
+        let seg = Parser::parse(&CONFIG, tokenizer::tokenize("čarala bonga máro"));
         assert!(!seg.has_mistakes());
     }
 
     #[test]
     fn test_all_fine_and_complicated() {
-        let seg = Parser::parse(tokenizer::tokenize("[čarala <SM bonga] (máro>)"));
+        let seg = Parser::parse(&CONFIG, tokenizer::tokenize("[čarala <SM bonga] (máro>)"));
         assert!(!seg.has_mistakes());
     }
 
     #[test]
     fn test_bad_char_in_word() {
-        let seg = Parser::parse(tokenizer::tokenize("čarala b%nga máro"));
+        let seg = Parser::parse(&CONFIG, tokenizer::tokenize("čarala b%nga máro"));
         assert!(seg.has_mistakes());
         assert_eq!(seg.mistakes.len(), 1);
         let m = &seg.mistakes[0];
@@ -263,7 +283,7 @@ mod tests {
         ($fname:ident, $kind:path, $source:expr) => {
             #[test]
             fn $fname() {
-                let seg = Parser::parse(tokenizer::tokenize($source));
+                let seg = Parser::parse(&CONFIG, tokenizer::tokenize($source));
                 dbg!(&seg);
                 assert_eq!(seg.mistakes.len(), 3, "Segment should have 3 mistakes.");
 
