@@ -9,19 +9,60 @@ use crate::{DelimKind::*, Mistake, Node, Parsed, Token, TokenKind::*, Tokenized}
 
 #[derive(Debug)]
 pub struct ParserConfig {
-    after_angle_whitelist: Regex,
+    /// Full tokens that are explicitly allowed.
+    whitelist: Option<Regex>,
+    /// Full tokens that are explicitly disallowed.
+    blacklist: Option<Regex>,
+    /// Graphemes which are allowed in tokens not covered by the above.
+    graphemes: Option<Regex>,
+    /// Codes allowed in a _-separated list after <.
+    after_angle: Option<Regex>,
 }
 
 impl ParserConfig {
-    pub fn from_args<S>(after_angle_whitelist: &[S]) -> Self
-    where
-        S: std::borrow::Borrow<str>,
-    {
-        let aaw = after_angle_whitelist.join("|");
-        ParserConfig {
-            after_angle_whitelist: Regex::new(&format!(r#"\A(?:{})\z"#, aaw))
-                .expect("invalid after angle whitelist regex"),
+    pub fn from_args<S: std::borrow::Borrow<str>>(
+        whitelist: &[S],
+        blacklist: &[S],
+        graphemes: &[S],
+        after_angle: &[S],
+    ) -> Self {
+        Self {
+            whitelist: Self::slice_to_regex(whitelist),
+            blacklist: Self::slice_to_regex(blacklist),
+            graphemes: Self::slice_to_regex(graphemes),
+            after_angle: Self::slice_to_regex(after_angle),
         }
+    }
+
+    fn slice_to_regex<S: std::borrow::Borrow<str>>(slice: &[S]) -> Option<Regex> {
+        let joined = slice.join("|");
+        if joined.is_empty() {
+            None
+        } else {
+            Some(Regex::new(&format!(r#"\A(?:{})\z"#, joined)).unwrap())
+        }
+    }
+}
+
+impl ParserConfig {
+    fn is_match(opt_re: &Option<Regex>, s: &str) -> bool {
+        opt_re.as_ref().map(|re| re.is_match(s)).unwrap_or_default()
+    }
+
+    fn in_whitelist(&self, s: &str) -> bool {
+        Self::is_match(&self.whitelist, s)
+    }
+
+    fn in_blacklist(&self, s: &str) -> bool {
+        Self::is_match(&self.blacklist, s)
+    }
+
+    fn in_graphemes(&self, s: &str) -> bool {
+        Self::is_match(&self.graphemes, s)
+    }
+
+    fn in_after_angle(&self, s: &str) -> bool {
+        Self::is_match(&self.after_angle, s)
     }
 }
 
@@ -213,7 +254,7 @@ impl<'c> Parser<'c> {
         let mut codes_ok = true;
         for code in token_str.split('_') {
             let code = code.to_owned();
-            if self.config.after_angle_whitelist.is_match(&code) {
+            if self.config.in_after_angle(&code) {
                 if !(code.is_empty() || codes.contains(&code)) {
                     codes.push(code);
                 }
@@ -253,36 +294,51 @@ mod tests {
     use crate::tokenizer;
 
     lazy_static! {
-        static ref CONFIG: ParserConfig = ParserConfig::from_args(&["SM"]);
+        static ref CONFIG: ParserConfig = ParserConfig::from_args(&[], &[], &[], &["SM"]);
     }
 
     #[test]
     fn test_config() {
-        let pc = ParserConfig::from_args(&["SM", "SJ"]);
-        eprintln!("regex: {}", pc.after_angle_whitelist.as_str());
-
-        assert!(pc.after_angle_whitelist.is_match("SM"));
-        assert!(pc.after_angle_whitelist.is_match("SJ"));
+        let pc = ParserConfig::from_args(&[], &[], &[], &["SM", "SJ"]);
+        assert!(pc.in_after_angle("SM"));
+        assert!(pc.in_after_angle("SJ"));
         assert!(
-            !pc.after_angle_whitelist.is_match("SM_SJ"),
+            !pc.in_after_angle("SM_SJ"),
             "the regex is meant to match one code at a time"
         );
         assert!(
-            !pc.after_angle_whitelist.is_match("SMSJ"),
+            !pc.in_after_angle("SMSJ"),
             "the regex is meant to match one code at a time"
         );
-        assert!(!pc.after_angle_whitelist.is_match("MJ"));
-        assert!(!pc.after_angle_whitelist.is_match(""));
-        assert!(!pc.after_angle_whitelist.is_match("_"));
-        assert!(!pc.after_angle_whitelist.is_match("_SM"));
+        assert!(!pc.in_after_angle("MJ"));
+        assert!(!pc.in_after_angle(""));
+        assert!(!pc.in_after_angle("_"));
+        assert!(!pc.in_after_angle("_SM"));
 
-        let pc = ParserConfig::from_args(&["SM"]);
-        assert!(pc.after_angle_whitelist.is_match("SM"));
-        assert!(!pc.after_angle_whitelist.is_match(""));
-        assert!(!pc.after_angle_whitelist.is_match("_"));
-        assert!(!pc.after_angle_whitelist.is_match("_SM"));
-        assert!(!pc.after_angle_whitelist.is_match("SJ"));
-        assert!(!pc.after_angle_whitelist.is_match("SM_SJ"));
+        let pc = ParserConfig::from_args(&[], &[], &[], &["SM"]);
+        assert!(pc.in_after_angle("SM"));
+        assert!(!pc.in_after_angle(""));
+        assert!(!pc.in_after_angle("_"));
+        assert!(!pc.in_after_angle("_SM"));
+        assert!(!pc.in_after_angle("SJ"));
+        assert!(!pc.in_after_angle("SM_SJ"));
+
+        let pc = ParserConfig::from_args::<&str>(&[], &[], &[], &[]);
+        dbg!(&pc);
+        assert!(!pc.in_after_angle("SM"));
+        assert!(
+            !pc.in_after_angle(""),
+            "the empty string should never be valid"
+        );
+        assert!(!pc.in_after_angle("_"));
+
+        let pc = ParserConfig::from_args::<&str>(&[], &[], &[], &[""]);
+        assert!(!pc.in_after_angle("SM"));
+        assert!(
+            !pc.in_after_angle(""),
+            "the empty string should never be valid"
+        );
+        assert!(!pc.in_after_angle("_"));
     }
 
     #[test]
