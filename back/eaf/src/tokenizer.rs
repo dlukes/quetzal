@@ -13,9 +13,9 @@
 use lazy_static::lazy_static;
 use regex::{Regex, RegexBuilder};
 
-use crate::{Segment, Token, TokenKind};
+use crate::{Token, Tokenized};
 
-pub fn tokenize(source: &str) -> Segment {
+pub fn tokenize(source: &str) -> Tokenized {
     lazy_static! {
         static ref WHITESPACE_RE: Regex = Regex::new(r"\s+").unwrap();
         static ref TOKENIZER_RE: Regex = RegexBuilder::new(
@@ -43,40 +43,41 @@ pub fn tokenize(source: &str) -> Segment {
     let source = WHITESPACE_RE.replace_all(source.trim(), " ").into_owned();
     let tokens = TOKENIZER_RE
         .find_iter(&source)
-        .map::<Token, _>(From::from)
-        .filter(|t| t.kind != TokenKind::Whitespace)
+        .filter_map::<Token, _>(|m| {
+            if m.as_str() == " " {
+                None
+            } else {
+                Some(Token::from(m))
+            }
+        })
         .collect();
-    Segment {
-        source,
-        tokens,
-        mistakes: vec![],
-    }
+    Tokenized { source, tokens }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TokenKind::*;
+    use crate::{DelimKind::*, TokenKind::*};
 
     #[test]
     fn tokenize_square_brackets() {
         let seg = tokenize("foo [bar] baz");
-        assert_eq!(seg.tokens[1].kind, OpenSquare);
-        assert_eq!(seg.tokens[3].kind, CloseSquare);
+        assert_eq!(seg.tokens[1].kind, Open(Square));
+        assert_eq!(seg.tokens[3].kind, Close(Square));
     }
 
     #[test]
     fn tokenize_round_brackets() {
         let seg = tokenize("foo (bar) baz");
-        assert_eq!(seg.tokens[1].kind, OpenRound);
-        assert_eq!(seg.tokens[3].kind, CloseRound);
+        assert_eq!(seg.tokens[1].kind, Open(Round));
+        assert_eq!(seg.tokens[3].kind, Close(Round));
     }
 
     #[test]
     fn tokenize_angle_brackets() {
         let seg = tokenize("foo <bar> baz");
-        assert_eq!(seg.tokens[1].kind, OpenAngle);
-        assert_eq!(seg.tokens[3].kind, CloseAngle);
+        assert_eq!(seg.tokens[1].kind, Open(Angle));
+        assert_eq!(seg.tokens[3].kind, Close(Angle));
     }
 
     fn compare_tokens(source: &str, tokens: &[&str]) {

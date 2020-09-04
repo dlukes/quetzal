@@ -6,21 +6,21 @@ use unicode_segmentation::UnicodeSegmentation;
 pub mod parser;
 pub mod tokenizer;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum TokenKind {
-    Whitespace,
-    NonWhitespace,
-    OpenRound,
-    CloseRound,
-    OpenSquare,
-    CloseSquare,
-    OpenAngle,
-    CloseAngle,
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum DelimKind {
+    Round,
+    Square,
+    Angle,
 }
 
-use TokenKind::*;
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum TokenKind {
+    NonDelim,
+    Open(DelimKind),
+    Close(DelimKind),
+}
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
     pub start: usize,
@@ -29,15 +29,17 @@ pub struct Token {
 
 impl<'t> From<Match<'t>> for Token {
     fn from(mat: Match) -> Self {
+        use DelimKind::*;
+        use TokenKind::*;
+
         let kind = match mat.as_str() {
-            "(" => OpenRound,
-            ")" => CloseRound,
-            "[" => OpenSquare,
-            "]" => CloseSquare,
-            "<" => OpenAngle,
-            ">" => CloseAngle,
-            " " => Whitespace,
-            _ => NonWhitespace,
+            "(" => Open(Round),
+            ")" => Close(Round),
+            "[" => Open(Square),
+            "]" => Close(Square),
+            "<" => Open(Angle),
+            ">" => Close(Angle),
+            _ => NonDelim,
         };
         Self {
             kind,
@@ -77,19 +79,16 @@ impl Tokenized {
         }
     }
 }
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum DelimKind {
-    Round,
-    Square,
-    Angle,
-}
-
-#[derive(Debug)]
+// NOTE: The Node could also just be a single struct per token, with
+// optional information as to which kinds of spans (possibly with which
+// attributes) it's contained in. Better for searching, worse for
+// serialization, which is our primary use case here.
+#[derive(Debug, PartialEq)]
 pub enum Node {
     AttrList(Vec<String>),
-    Delim(DelimKind),
-    Special(String),
-    Word(String),
+    Open(DelimKind),
+    Close(DelimKind),
+    Token(Token),
 }
 
 #[derive(Debug)]
@@ -117,10 +116,15 @@ pub enum Mistake {
         kind: DelimKind,
         at: usize,
     },
+    MissingAttrs {
+        at: usize,
+    },
 }
 
 #[derive(Debug)]
 pub struct Parsed {
+    pub source: String,
+    pub tokens: Vec<Token>,
     pub nodes: Vec<Node>,
     pub mistakes: Vec<Mistake>,
 }
