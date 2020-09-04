@@ -3,7 +3,9 @@
 //! This is where *all* kinds of mistakes are detected and recorded. If there
 //! are any, the user will thus get a full list of what's wrong, so that they
 //! can fix everything in one go.
+use lazy_static::lazy_static;
 use regex::Regex;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{DelimKind::*, Mistake, Node, Parsed, Token, TokenKind::*, Tokenized};
 
@@ -20,12 +22,18 @@ pub struct ParserConfig {
 }
 
 impl ParserConfig {
-    pub fn from_args<S: std::borrow::Borrow<str>>(
-        whitelist: &[S],
-        blacklist: &[S],
-        graphemes: &[S],
-        after_angle: &[S],
-    ) -> Self {
+    pub fn from_args<W, B, G, A>(
+        whitelist: &[W],
+        blacklist: &[B],
+        graphemes: &[G],
+        after_angle: &[A],
+    ) -> Self
+    where
+        W: std::borrow::Borrow<str>,
+        B: std::borrow::Borrow<str>,
+        G: std::borrow::Borrow<str>,
+        A: std::borrow::Borrow<str>,
+    {
         Self {
             whitelist: Self::slice_to_regex(whitelist),
             blacklist: Self::slice_to_regex(blacklist),
@@ -39,7 +47,7 @@ impl ParserConfig {
         if joined.is_empty() {
             None
         } else {
-            Some(Regex::new(&format!(r#"\A(?:{})\z"#, joined)).unwrap())
+            Some(Regex::new(&format!(r"\A(?:{})\z", joined)).unwrap())
         }
     }
 }
@@ -146,20 +154,41 @@ impl<'c> Parser<'c> {
     }
 
     fn parse_word(&mut self) {
-        let mut word_ok = true;
+        let mut word_ok;
         let (token, token_str) = Parser::get_token(self.current, &self.tokens, &self.source);
-        for (i, c) in token_str.char_indices() {
-            // TODO: this is just an approximate placeholder test
-            if !c.is_alphanumeric() {
-                word_ok = false;
-                self.mistakes.push(Mistake::BadChar {
-                    char: c,
-                    char_at: i,
-                    at: self.current,
-                });
-            }
-            // TODO: plain numbers should only be allowed inside parens
+
+        lazy_static! {
+            static ref NUMERIC_RE: Regex = Regex::new(r"-?\d*?[,\.]?\d+").unwrap();
         }
+
+        if NUMERIC_RE.is_match(token_str) {
+            // plain numbers should only be allowed inside parens as counts
+            // of unintelligible words
+            if self.round_start.is_some() {
+                word_ok = true;
+            } else {
+                word_ok = false;
+                self.mistakes.push(Mistake::BadToken { at: self.current });
+            }
+        } else if self.config.in_whitelist(token_str) {
+            word_ok = true;
+        } else if self.config.in_blacklist(token_str) {
+            word_ok = false;
+            self.mistakes.push(Mistake::BadToken { at: self.current });
+        } else {
+            word_ok = true;
+            for (i, g) in token_str.grapheme_indices(true) {
+                if !self.config.in_graphemes(g) {
+                    word_ok = false;
+                    self.mistakes.push(Mistake::BadGrapheme {
+                        start: i,
+                        len: g.len(),
+                        at: self.current,
+                    });
+                }
+            }
+        }
+
         if word_ok {
             self.nodes.push(Node::Token(token));
         }
@@ -260,8 +289,8 @@ impl<'c> Parser<'c> {
                 }
             } else {
                 codes_ok = false;
-                self.mistakes.push(Mistake::BadSymbol {
-                    symbol: code,
+                self.mistakes.push(Mistake::BadAttr {
+                    attr: code,
                     at: self.current,
                 });
             }
@@ -288,18 +317,29 @@ impl<'c> Parser<'c> {
 
 #[cfg(test)]
 mod tests {
-    use lazy_static::lazy_static;
-
     use super::*;
     use crate::tokenizer;
 
     lazy_static! {
-        static ref CONFIG: ParserConfig = ParserConfig::from_args(&[], &[], &[], &["SM"]);
+        static ref GRAPHEMES: Vec<String> = {
+            let mut graphemes = ('A'..='Z')
+                .chain('a'..='z')
+                .map(|c| c.to_string())
+                .collect::<Vec<_>>();
+            graphemes.push("č".to_string());
+            graphemes.push("á".to_string());
+            graphemes
+        };
+        static ref CONFIG: ParserConfig =
+            ParserConfig::from_args(&[".", "..", "@", "#li", "&"], &["hm"], &GRAPHEMES, &["SM"]);
     }
 
     #[test]
     fn test_config() {
-        let pc = ParserConfig::from_args(&[], &[], &[], &["SM", "SJ"]);
+        // NOTE: only tests after_angle, but the other ones should work exactly
+        // the same (the regexes are prepared and matched the same way)
+
+        let pc = ParserConfig::from_args::<&str, &str, &str, _>(&[], &[], &[], &["SM", "SJ"]);
         assert!(pc.in_after_angle("SM"));
         assert!(pc.in_after_angle("SJ"));
         assert!(
@@ -315,7 +355,7 @@ mod tests {
         assert!(!pc.in_after_angle("_"));
         assert!(!pc.in_after_angle("_SM"));
 
-        let pc = ParserConfig::from_args(&[], &[], &[], &["SM"]);
+        let pc = ParserConfig::from_args::<&str, &str, &str, _>(&[], &[], &[], &["SM"]);
         assert!(pc.in_after_angle("SM"));
         assert!(!pc.in_after_angle(""));
         assert!(!pc.in_after_angle("_"));
@@ -323,7 +363,7 @@ mod tests {
         assert!(!pc.in_after_angle("SJ"));
         assert!(!pc.in_after_angle("SM_SJ"));
 
-        let pc = ParserConfig::from_args::<&str>(&[], &[], &[], &[]);
+        let pc = ParserConfig::from_args::<&str, &str, &str, &str>(&[], &[], &[], &[]);
         dbg!(&pc);
         assert!(!pc.in_after_angle("SM"));
         assert!(
@@ -332,7 +372,7 @@ mod tests {
         );
         assert!(!pc.in_after_angle("_"));
 
-        let pc = ParserConfig::from_args::<&str>(&[], &[], &[], &[""]);
+        let pc = ParserConfig::from_args::<&str, &str, &str, _>(&[], &[], &[], &[""]);
         assert!(!pc.in_after_angle("SM"));
         assert!(
             !pc.in_after_angle(""),
@@ -393,9 +433,9 @@ mod tests {
         assert!(seg.has_mistakes());
         assert_eq!(seg.mistakes.len(), 1);
         let m = &seg.mistakes[0];
-        if let Mistake::BadChar { char, char_at, at } = m {
-            assert_eq!(*char, '%');
-            assert_eq!(*char_at, 1);
+        if let Mistake::BadGrapheme { start, len, at } = m {
+            assert_eq!(*start, 1);
+            assert_eq!(*len, 1);
             assert_eq!(*at, 1);
         } else {
             panic!("unexpected mistake: {:?}", m);

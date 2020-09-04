@@ -94,13 +94,16 @@ pub enum Node {
 #[derive(Debug)]
 pub enum Mistake {
     // at is for token offsets
-    BadChar {
-        char: char,
-        char_at: usize,
+    BadToken {
         at: usize,
     },
-    BadSymbol {
-        symbol: String,
+    BadGrapheme {
+        start: usize,
+        len: usize,
+        at: usize,
+    },
+    BadAttr {
+        attr: String,
         at: usize,
     },
     NestedDelim {
