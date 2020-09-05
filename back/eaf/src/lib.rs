@@ -91,7 +91,7 @@ pub enum Node {
     Token(Token),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Mistake {
     // at is for token offsets
     BadToken {

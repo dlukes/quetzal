@@ -330,8 +330,12 @@ mod tests {
             graphemes.push("á".to_string());
             graphemes
         };
-        static ref CONFIG: ParserConfig =
-            ParserConfig::from_args(&[".", "..", "@", "#li", "&"], &["hm"], &GRAPHEMES, &["SM"]);
+        static ref CONFIG: ParserConfig = ParserConfig::from_args(
+            &[r"\.", r"\.\.", "@", "#li", "&"],
+            &["hm"],
+            &GRAPHEMES,
+            &["SM"]
+        );
     }
 
     #[test]
@@ -364,7 +368,6 @@ mod tests {
         assert!(!pc.in_after_angle("SM_SJ"));
 
         let pc = ParserConfig::from_args::<&str, &str, &str, &str>(&[], &[], &[], &[]);
-        dbg!(&pc);
         assert!(!pc.in_after_angle("SM"));
         assert!(
             !pc.in_after_angle(""),
@@ -379,6 +382,65 @@ mod tests {
             "the empty string should never be valid"
         );
         assert!(!pc.in_after_angle("_"));
+    }
+
+    #[test]
+    fn test_whitelist() {
+        assert!(!GRAPHEMES.iter().any(|s| s == "."));
+        let seg = Parser::parse(&CONFIG, tokenizer::tokenize(".."));
+        assert!(!seg.has_mistakes());
+        assert_eq!(
+            seg.nodes[0],
+            Node::Token(Token {
+                kind: NonDelim,
+                start: 0,
+                end: 2
+            })
+        );
+    }
+
+    #[test]
+    fn test_blacklist() {
+        assert!(GRAPHEMES.iter().any(|s| s == "h"));
+        assert!(GRAPHEMES.iter().any(|s| s == "m"));
+        assert!(&CONFIG.in_blacklist("hm"));
+        let seg = Parser::parse(&CONFIG, tokenizer::tokenize("hm"));
+        assert!(seg.has_mistakes());
+        assert_eq!(seg.mistakes[0], Mistake::BadToken { at: 0 });
+    }
+
+    #[test]
+    fn test_blocked_graphemes() {
+        assert!(!GRAPHEMES.iter().any(|s| s == "ž"));
+        let seg = Parser::parse(&CONFIG, tokenizer::tokenize("ž"));
+        assert!(seg.has_mistakes());
+        assert_eq!(
+            seg.mistakes[0],
+            Mistake::BadGrapheme {
+                start: 0,
+                len: 2,
+                at: 0
+            }
+        );
+    }
+
+    #[test]
+    fn test_multi_codepoint_graphemes() {
+        // TODO: at some point in the future, we might want to treat d͡ʒ as one
+        // element, so that we can disallow other combinations with d͡, e.g. d͡z;
+        // at that point, we'll have to switch over from iterating over graphemes
+        // in parse_word to something more sophisticated, because d͡ʒ consists
+        // of 2 graphemes.
+        let pc = ParserConfig::from_args(&[""], &[""], &["d͡", "ʒ", "o", "n"], &[""]);
+
+        let seg = Parser::parse(&pc, tokenizer::tokenize("d͡ʒon"));
+        assert!(!seg.has_mistakes());
+
+        for c in "d͡".chars() {
+            let c = c.to_string();
+            let seg = Parser::parse(&pc, tokenizer::tokenize(&c));
+            assert!(seg.has_mistakes());
+        }
     }
 
     #[test]
@@ -432,14 +494,14 @@ mod tests {
         let seg = Parser::parse(&CONFIG, tokenizer::tokenize("čarala b%nga máro"));
         assert!(seg.has_mistakes());
         assert_eq!(seg.mistakes.len(), 1);
-        let m = &seg.mistakes[0];
-        if let Mistake::BadGrapheme { start, len, at } = m {
-            assert_eq!(*start, 1);
-            assert_eq!(*len, 1);
-            assert_eq!(*at, 1);
-        } else {
-            panic!("unexpected mistake: {:?}", m);
-        }
+        assert_eq!(
+            seg.mistakes[0],
+            Mistake::BadGrapheme {
+                start: 1,
+                len: 1,
+                at: 1
+            }
+        );
     }
 
     macro_rules! test_delims {
@@ -448,36 +510,22 @@ mod tests {
             fn $fname() {
                 let seg = Parser::parse(&CONFIG, tokenizer::tokenize($source));
                 assert_eq!(seg.mistakes.len(), 3, "Segment should have 3 mistakes.");
-
-                let m = &seg.mistakes[0];
-                if let Mistake::ClosingUnopenedDelim { kind, at } = m {
-                    assert_eq!(*kind, $kind);
-                    assert_eq!(*at, 0);
-                } else {
-                    panic!("unexpected mistake at #1: {:?}", m);
-                }
-
-                let m = &seg.mistakes[1];
-                if let Mistake::NestedDelim {
-                    kind,
-                    outermost_start,
-                    at,
-                } = m
-                {
-                    assert_eq!(*kind, $kind);
-                    assert_eq!(*outermost_start, 1);
-                    assert_eq!(*at, 2);
-                } else {
-                    panic!("unexpected mistake at #2: {:?}", m);
-                }
-
-                let m = &seg.mistakes[2];
-                if let Mistake::UnclosedDelim { kind, at } = m {
-                    assert_eq!(*kind, $kind);
-                    assert_eq!(*at, 1);
-                } else {
-                    panic!("unexpected mistake at #3: {:?}", m);
-                }
+                assert_eq!(
+                    seg.mistakes[0],
+                    Mistake::ClosingUnopenedDelim { kind: $kind, at: 0 }
+                );
+                assert_eq!(
+                    seg.mistakes[1],
+                    Mistake::NestedDelim {
+                        kind: $kind,
+                        outermost_start: 1,
+                        at: 2
+                    }
+                );
+                assert_eq!(
+                    seg.mistakes[2],
+                    Mistake::UnclosedDelim { kind: $kind, at: 1 }
+                );
             }
         };
     }
