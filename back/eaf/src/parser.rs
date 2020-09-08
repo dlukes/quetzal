@@ -4,10 +4,10 @@
 //! are any, the user will thus get a full list of what's wrong, so that they
 //! can fix everything in one go.
 use lazy_static::lazy_static;
-use regex::Regex;
-use unicode_segmentation::UnicodeSegmentation;
+use regex::{Matches, Regex};
 
 use crate::{DelimKind::*, Mistake, Node, Parsed, Token, TokenKind::*, Tokenized};
+use std::cmp::Reverse;
 
 #[derive(Debug)]
 pub struct ParserConfig {
@@ -15,29 +15,38 @@ pub struct ParserConfig {
     whitelist: Option<Regex>,
     /// Full tokens that are explicitly disallowed.
     blacklist: Option<Regex>,
-    /// Graphemes which are allowed in tokens not covered by the above.
-    graphemes: Option<Regex>,
+    /// Graphemes and grapheme sequences hich are allowed in tokens not covered by the above.
+    atoms: Option<Regex>,
     /// Codes allowed in a _-separated list after <.
     after_angle: Option<Regex>,
 }
 
 impl ParserConfig {
-    pub fn from_args<W, B, G, A>(
+    pub fn from_args<W, B, A, G>(
         whitelist: &[W],
         blacklist: &[B],
-        graphemes: &[G],
-        after_angle: &[A],
+        atoms: &[A],
+        after_angle: &[G],
     ) -> Self
     where
         W: std::borrow::Borrow<str>,
         B: std::borrow::Borrow<str>,
+        A: std::borrow::Borrow<str> + Clone,
         G: std::borrow::Borrow<str>,
-        A: std::borrow::Borrow<str>,
     {
+        let mut atoms = atoms.to_vec();
+        atoms.sort_unstable_by_key(|x| Reverse(x.borrow().len()));
+        let joined = atoms.join("|");
+        let atoms = if joined.is_empty() {
+            None
+        } else {
+            Some(Regex::new(&joined).unwrap())
+        };
+
         Self {
             whitelist: Self::slice_to_regex(whitelist),
             blacklist: Self::slice_to_regex(blacklist),
-            graphemes: Self::slice_to_regex(graphemes),
+            atoms,
             after_angle: Self::slice_to_regex(after_angle),
         }
     }
@@ -65,12 +74,12 @@ impl ParserConfig {
         Self::is_match(&self.blacklist, s)
     }
 
-    fn in_graphemes(&self, s: &str) -> bool {
-        Self::is_match(&self.graphemes, s)
-    }
-
     fn in_after_angle(&self, s: &str) -> bool {
         Self::is_match(&self.after_angle, s)
+    }
+
+    fn maybe_iter_atoms<'r, 't>(&'r self, s: &'t str) -> Option<Matches<'r, 't>> {
+        self.atoms.as_ref().map(|re| re.find_iter(s))
     }
 }
 
@@ -154,7 +163,7 @@ impl<'c> Parser<'c> {
     }
 
     fn parse_word(&mut self) {
-        let mut word_ok;
+        let mut word_ok = true;
         let (token, token_str) = Parser::get_token(self.current, &self.tokens, &self.source);
 
         lazy_static! {
@@ -164,28 +173,35 @@ impl<'c> Parser<'c> {
         if NUMERIC_RE.is_match(token_str) {
             // plain numbers should only be allowed inside parens as counts
             // of unintelligible words
-            if self.round_start.is_some() {
-                word_ok = true;
-            } else {
+            if self.round_start.is_none() {
                 word_ok = false;
                 self.mistakes.push(Mistake::BadToken { at: self.current });
             }
         } else if self.config.in_whitelist(token_str) {
-            word_ok = true;
         } else if self.config.in_blacklist(token_str) {
             word_ok = false;
             self.mistakes.push(Mistake::BadToken { at: self.current });
-        } else {
-            word_ok = true;
-            for (i, g) in token_str.grapheme_indices(true) {
-                if !self.config.in_graphemes(g) {
+        } else if let Some(atoms) = self.config.maybe_iter_atoms(token_str) {
+            let token_len = token_str.len();
+            let mut prev_end = 0;
+            for atom in atoms {
+                let (start, end) = (atom.start(), atom.end());
+                if start != prev_end {
                     word_ok = false;
-                    self.mistakes.push(Mistake::BadGrapheme {
-                        start: i,
-                        len: g.len(),
+                    self.mistakes.push(Mistake::BadSubstr {
+                        start: prev_end,
+                        end: start,
                         at: self.current,
-                    });
+                    })
                 }
+                prev_end = end;
+            }
+            if prev_end != token_len {
+                self.mistakes.push(Mistake::BadSubstr {
+                    start: 0,
+                    end: token_len,
+                    at: self.current,
+                })
             }
         }
 
@@ -321,21 +337,18 @@ mod tests {
     use crate::tokenizer;
 
     lazy_static! {
-        static ref GRAPHEMES: Vec<String> = {
-            let mut graphemes = ('A'..='Z')
+        static ref ATOMS: Vec<String> = {
+            let mut atoms = ('A'..='Z')
                 .chain('a'..='z')
                 .map(|c| c.to_string())
                 .collect::<Vec<_>>();
-            graphemes.push("č".to_string());
-            graphemes.push("á".to_string());
-            graphemes
+            atoms.push("č".to_string());
+            atoms.push("á".to_string());
+            atoms.push("d͡ʒ".to_string());
+            atoms
         };
-        static ref CONFIG: ParserConfig = ParserConfig::from_args(
-            &[r"\.", r"\.\.", "@", "#li", "&"],
-            &["hm"],
-            &GRAPHEMES,
-            &["SM"]
-        );
+        static ref CONFIG: ParserConfig =
+            ParserConfig::from_args(&[r"\.", r"\.\.", "@", "#li", "&"], &["hm"], &ATOMS, &["SM"]);
     }
 
     #[test]
@@ -386,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_whitelist() {
-        assert!(!GRAPHEMES.iter().any(|s| s == "."));
+        assert!(!ATOMS.iter().any(|s| s == "."));
         let seg = Parser::parse(&CONFIG, tokenizer::tokenize(".."));
         assert!(!seg.has_mistakes());
         assert_eq!(
@@ -401,8 +414,8 @@ mod tests {
 
     #[test]
     fn test_blacklist() {
-        assert!(GRAPHEMES.iter().any(|s| s == "h"));
-        assert!(GRAPHEMES.iter().any(|s| s == "m"));
+        assert!(ATOMS.iter().any(|s| s == "h"));
+        assert!(ATOMS.iter().any(|s| s == "m"));
         assert!(&CONFIG.in_blacklist("hm"));
         let seg = Parser::parse(&CONFIG, tokenizer::tokenize("hm"));
         assert!(seg.has_mistakes());
@@ -410,37 +423,41 @@ mod tests {
     }
 
     #[test]
-    fn test_blocked_graphemes() {
-        assert!(!GRAPHEMES.iter().any(|s| s == "ž"));
+    fn test_disallowed_atoms() {
+        assert!(!ATOMS.iter().any(|s| s == "ž"));
         let seg = Parser::parse(&CONFIG, tokenizer::tokenize("ž"));
         assert!(seg.has_mistakes());
         assert_eq!(
             seg.mistakes[0],
-            Mistake::BadGrapheme {
+            Mistake::BadSubstr {
                 start: 0,
-                len: 2,
+                end: 2,
                 at: 0
             }
         );
     }
 
     #[test]
-    fn test_multi_codepoint_graphemes() {
-        // TODO: at some point in the future, we might want to treat d͡ʒ as one
-        // element, so that we can disallow other combinations with d͡, e.g. d͡z;
-        // at that point, we'll have to switch over from iterating over graphemes
-        // in parse_word to something more sophisticated, because d͡ʒ consists
-        // of 2 graphemes.
-        let pc = ParserConfig::from_args(&[""], &[""], &["d͡", "ʒ", "o", "n"], &[""]);
-
-        let seg = Parser::parse(&pc, tokenizer::tokenize("d͡ʒon"));
-        assert!(!seg.has_mistakes());
-
-        for c in "d͡".chars() {
-            let c = c.to_string();
-            let seg = Parser::parse(&pc, tokenizer::tokenize(&c));
-            assert!(seg.has_mistakes());
-        }
+    fn test_multi_codepoint_atoms() {
+        let seg = Parser::parse(&CONFIG, tokenizer::tokenize("d͡ʒi d͡zi ʒi"));
+        assert!(seg.has_mistakes());
+        assert_eq!(seg.mistakes.len(), 2);
+        assert_eq!(
+            seg.mistakes[0],
+            Mistake::BadSubstr {
+                start: 1,
+                end: 3,
+                at: 1,
+            }
+        );
+        assert_eq!(
+            seg.mistakes[1],
+            Mistake::BadSubstr {
+                start: 0,
+                end: 2,
+                at: 2,
+            }
+        );
     }
 
     #[test]
@@ -496,9 +513,9 @@ mod tests {
         assert_eq!(seg.mistakes.len(), 1);
         assert_eq!(
             seg.mistakes[0],
-            Mistake::BadGrapheme {
+            Mistake::BadSubstr {
                 start: 1,
-                len: 1,
+                end: 2,
                 at: 1
             }
         );
@@ -509,7 +526,7 @@ mod tests {
             #[test]
             fn $fname() {
                 let seg = Parser::parse(&CONFIG, tokenizer::tokenize($source));
-                assert_eq!(seg.mistakes.len(), 3, "Segment should have 3 mistakes.");
+                assert_eq!(seg.mistakes.len(), 3);
                 assert_eq!(
                     seg.mistakes[0],
                     Mistake::ClosingUnopenedDelim { kind: $kind, at: 0 }

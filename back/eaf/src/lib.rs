@@ -91,15 +91,18 @@ pub enum Node {
     Token(Token),
 }
 
+// TODO: for use on the client, these indices will either have to be recomputed
+// in JS-appropriate terms (UTF-16 code units or codepoints), or the appropriate
+// markup highlighting problematic regions will have to be added server-side
 #[derive(Debug, PartialEq)]
 pub enum Mistake {
     // at is for token offsets
     BadToken {
         at: usize,
     },
-    BadGrapheme {
+    BadSubstr {
         start: usize,
-        len: usize,
+        end: usize,
         at: usize,
     },
     BadAttr {
