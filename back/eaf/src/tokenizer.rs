@@ -11,9 +11,62 @@
 //! Whitespace is normalized prior to tokenization, as this isn't something
 //! we'd want people to fix by hand.
 use lazy_static::lazy_static;
-use regex::{Regex, RegexBuilder};
+use regex::{Match, Regex, RegexBuilder};
 
-use crate::{Token, Tokenized};
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum DelimKind {
+    Round,
+    Square,
+    Angle,
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum TokenKind {
+    NonDelim,
+    Open(DelimKind),
+    Close(DelimKind),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub start: usize,
+    pub end: usize,
+}
+
+impl<'t> From<Match<'t>> for Token {
+    fn from(mat: Match) -> Self {
+        use DelimKind::*;
+        use TokenKind::*;
+
+        let kind = match mat.as_str() {
+            "(" => Open(Round),
+            ")" => Close(Round),
+            "[" => Open(Square),
+            "]" => Close(Square),
+            "<" => Open(Angle),
+            ">" => Close(Angle),
+            _ => NonDelim,
+        };
+        Self {
+            kind,
+            start: mat.start(),
+            end: mat.end(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Tokenized {
+    pub source: String,
+    pub tokens: Vec<Token>,
+}
+
+impl Tokenized {
+    pub fn as_str(&self, token: &Token) -> &str {
+        &self.source[token.start..token.end]
+    }
+}
 
 pub fn tokenize(source: &str) -> Tokenized {
     lazy_static! {
@@ -56,8 +109,7 @@ pub fn tokenize(source: &str) -> Tokenized {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::{DelimKind::*, TokenKind::*};
+    use super::{DelimKind::*, TokenKind::*, *};
 
     #[test]
     fn tokenize_square_brackets() {

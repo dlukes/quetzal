@@ -5,6 +5,5 @@ authors = ["David Lukes <dafydd.lukes@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-regex = "1.1.2"
-lazy_static = "1.3.0"
-unicode-segmentation = "1.2.1"
+regex = "^1"
+lazy_static = "^1"

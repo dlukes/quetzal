@@ -3,12 +3,80 @@
 //! This is where *all* kinds of mistakes are detected and recorded. If there
 //! are any, the user will thus get a full list of what's wrong, so that they
 //! can fix everything in one go.
+use std::cmp::Reverse;
+
 use lazy_static::lazy_static;
 use regex::{Matches, Regex};
 
-use crate::{DelimKind::*, Mistake, Node, Parsed, Token, TokenKind::*, Tokenized};
-use std::cmp::Reverse;
+use super::tokenizer::{
+    DelimKind::{self, *},
+    Token,
+    TokenKind::*,
+    Tokenized,
+};
 
+// NOTE: The Node could also just be a single struct per token, with
+// optional information as to which kinds of spans (possibly with which
+// attributes) it's contained in. Better for searching, worse for
+// serialization, which is our primary use case here.
+#[derive(Debug, PartialEq)]
+pub enum Node {
+    AttrList(Vec<String>),
+    Open(DelimKind),
+    Close(DelimKind),
+    Token(Token),
+}
+
+// TODO: for use on the client, these indices will either have to be recomputed
+// in JS-appropriate terms (UTF-16 code units or codepoints), or the appropriate
+// markup highlighting problematic regions will have to be added server-side,
+// possibly as a rich data structure -- some kind of vec of spans with annotations.
+#[derive(Debug, PartialEq)]
+pub enum Mistake {
+    // at is for token offsets
+    BadToken {
+        at: usize,
+    },
+    BadSubstr {
+        start: usize,
+        end: usize,
+        at: usize,
+    },
+    BadAttr {
+        attr: String,
+        at: usize,
+    },
+    NestedDelim {
+        kind: DelimKind,
+        outermost_start: usize,
+        at: usize,
+    },
+    ClosingUnopenedDelim {
+        kind: DelimKind,
+        at: usize,
+    },
+    UnclosedDelim {
+        kind: DelimKind,
+        at: usize,
+    },
+    MissingAttrs {
+        at: usize,
+    },
+}
+
+#[derive(Debug)]
+pub struct Parsed {
+    pub source: String,
+    pub tokens: Vec<Token>,
+    pub nodes: Vec<Node>,
+    pub mistakes: Vec<Mistake>,
+}
+
+impl Parsed {
+    pub fn has_mistakes(&self) -> bool {
+        !self.mistakes.is_empty()
+    }
+}
 #[derive(Debug)]
 pub struct ParserConfig {
     /// Full tokens that are explicitly allowed.
