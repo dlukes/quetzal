@@ -10,6 +10,7 @@
 //!
 //! Whitespace is normalized prior to tokenization, as this isn't something
 //! we'd want people to fix by hand.
+
 use lazy_static::lazy_static;
 use regex::{Match, Regex, RegexBuilder};
 

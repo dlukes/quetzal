@@ -3,6 +3,7 @@
 //! This is where *all* kinds of mistakes are detected and recorded. If there
 //! are any, the user will thus get a full list of what's wrong, so that they
 //! can fix everything in one go.
+
 use std::cmp::Reverse;
 
 use lazy_static::lazy_static;

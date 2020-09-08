@@ -7,3 +7,5 @@ edition = "2018"
 [dependencies]
 regex = "^1"
 lazy_static = "^1"
+sxd-document = "^0.3"
+sxd-xpath = "^0.4"
