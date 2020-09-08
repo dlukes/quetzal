@@ -621,50 +621,24 @@ mod tests {
     #[test]
     fn test_angle() {
         let seg = Parser::parse(&CONFIG, tokenizer::tokenize("><<"));
-        assert_eq!(seg.mistakes.len(), 5, "Segment should have 5 mistakes.");
-
-        let m = &seg.mistakes[0];
-        if let Mistake::ClosingUnopenedDelim { kind, at } = m {
-            assert_eq!(*kind, Angle);
-            assert_eq!(*at, 0);
-        } else {
-            panic!("unexpected mistake: {:?}", m);
-        }
-
-        let m = &seg.mistakes[1];
-        if let Mistake::MissingAttrs { at } = m {
-            assert_eq!(*at, 2);
-        } else {
-            panic!("unexpected mistake: {:?}", m);
-        }
-
-        let m = &seg.mistakes[2];
-        if let Mistake::NestedDelim {
-            kind,
-            outermost_start,
-            at,
-        } = m
-        {
-            assert_eq!(*kind, Angle);
-            assert_eq!(*outermost_start, 1);
-            assert_eq!(*at, 2);
-        } else {
-            panic!("unexpected mistake: {:?}", m);
-        }
-
-        let m = &seg.mistakes[3];
-        if let Mistake::MissingAttrs { at } = m {
-            assert_eq!(*at, 3);
-        } else {
-            panic!("unexpected mistake: {:?}", m);
-        }
-
-        let m = &seg.mistakes[4];
-        if let Mistake::UnclosedDelim { kind, at } = m {
-            assert_eq!(*kind, Angle);
-            assert_eq!(*at, 1);
-        } else {
-            panic!("unexpected mistake: {:?}", m);
-        }
+        assert_eq!(seg.mistakes.len(), 5);
+        assert_eq!(
+            seg.mistakes[0],
+            Mistake::ClosingUnopenedDelim { kind: Angle, at: 0 }
+        );
+        assert_eq!(seg.mistakes[1], Mistake::MissingAttrs { at: 2 });
+        assert_eq!(
+            seg.mistakes[2],
+            Mistake::NestedDelim {
+                kind: Angle,
+                outermost_start: 1,
+                at: 2,
+            }
+        );
+        assert_eq!(seg.mistakes[3], Mistake::MissingAttrs { at: 3 });
+        assert_eq!(
+            seg.mistakes[4],
+            Mistake::UnclosedDelim { kind: Angle, at: 1 }
+        );
     }
 }
