@@ -1,16 +1,18 @@
 module Main exposing (main)
 
-import Browser
+import Browser exposing (Document)
 import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Http
-import Json.Decode as D
-import Url
+import Html.Lazy exposing (lazy)
+import Pages.DocDetail as DocDetail
+import Pages.DocList as DocList
+import Route
+import Url exposing (Url)
 
 
 
--- MAIN
+----------------------------------------------------------------------------------- Main {{{1
 
 
 main : Program () Model Msg
@@ -19,125 +21,149 @@ main =
         { init = init
         , view = view
         , update = update
-        , subscriptions = subscriptions
-        , onUrlChange = UrlChanged
-        , onUrlRequest = LinkClicked
+        , subscriptions = \_ -> Sub.none
+        , onUrlChange = ChangedUrl
+        , onUrlRequest = ClickedLink
         }
 
 
 
--- MODEL
+---------------------------------------------------------------------------------- Model {{{1
 
 
 type alias Model =
-    { key : Nav.Key
-    , url : Url.Url
-    , page : Page
+    { page : Page
+    , key : Nav.Key
     }
 
 
 type Page
-    = DocList
-    | DocDetail
-
-
-
--- | SpeakerList
--- | SpeakerDetail
--- | SearchResults
+    = DocList DocList.Model
+    | DocDetail DocDetail.Model
+    | NotFound
 
 
 init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
-    ( { key = key, url = url, page = DocList }, Cmd.none )
+    updatePage url { page = NotFound, key = key }
 
 
 
--- UPDATE
+-------------------------------------------------------------------------------- Updates {{{1
 
 
 type Msg
-    = LinkClicked Browser.UrlRequest
-    | UrlChanged Url.Url
-    | GotDocList (Result Http.Error DocList)
+    = ClickedLink Browser.UrlRequest
+    | ChangedUrl Url.Url
+    | GotDocListMsg DocList.Msg
+    | GotDocDetailMsg DocDetail.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
-    case msg of
-        LinkClicked urlRequest ->
+update mainMsg mainModel =
+    case mainMsg of
+        ClickedLink urlRequest ->
             case urlRequest of
                 Browser.Internal url ->
-                    ( model, Nav.pushUrl model.key (Url.toString url) )
+                    ( mainModel, Nav.pushUrl mainModel.key (Url.toString url) )
 
                 Browser.External href ->
-                    ( model, Nav.load href )
+                    ( mainModel, Nav.load href )
 
-        UrlChanged url ->
-            ( { model | url = url }, getDocList )
+        ChangedUrl url ->
+            updatePage url mainModel
 
-        GotDocList _ ->
-            ( model, Cmd.none )
+        GotDocListMsg msg ->
+            case mainModel.page of
+                DocList model ->
+                    toDocList mainModel (DocList.update msg model)
+
+                _ ->
+                    ( mainModel, Cmd.none )
+
+        GotDocDetailMsg msg ->
+            case mainModel.page of
+                DocDetail model ->
+                    toDocDetail mainModel (DocDetail.update msg model)
+
+                _ ->
+                    ( mainModel, Cmd.none )
+
+
+updatePage : Url -> Model -> ( Model, Cmd Msg )
+updatePage url model =
+    case Route.urlParse url of
+        Just Route.DocList ->
+            toDocList model <| DocList.init
+
+        Just (Route.DocDetail docId) ->
+            toDocDetail model <| DocDetail.init docId
+
+        _ ->
+            ( { model | page = NotFound }, Cmd.none )
+
+
+toDocList : Model -> ( DocList.Model, Cmd DocList.Msg ) -> ( Model, Cmd Msg )
+toDocList model ( docList, cmd ) =
+    ( { model | page = DocList docList }, Cmd.map GotDocListMsg cmd )
+
+
+toDocDetail : Model -> ( DocDetail.Model, Cmd DocDetail.Msg ) -> ( Model, Cmd Msg )
+toDocDetail model ( docDetail, cmd ) =
+    ( { model | page = DocDetail docDetail }, Cmd.map GotDocDetailMsg cmd )
 
 
 
--- SUBSCRIPTIONS
+----------------------------------------------------------------------------------- View {{{1
 
 
-subscriptions : Model -> Sub Msg
-subscriptions _ =
-    Sub.none
+view : Model -> Document Msg
+view mainModel =
+    let
+        content =
+            case mainModel.page of
+                DocList model ->
+                    DocList.view model |> Html.map GotDocListMsg
 
+                DocDetail model ->
+                    DocDetail.view model |> Html.map GotDocDetailMsg
 
-
--- VIEW
-
-
-view : Model -> Browser.Document Msg
-view model =
+                NotFound ->
+                    text "Požadovaná stránka nebyla nalezena."
+    in
     { title = "Quetzal: Databáze sond mluvené češtiny"
     , body =
-        [ text "Právě jste na adrese:"
-        , b [] [ text (Url.toString model.url) ]
-        , ul []
-            [ viewLink "/documents"
-            , viewLink "/speakers"
-            , viewLink "/search"
-            ]
+        [ lazy viewHeader mainModel.page
+        , content
+        , viewFooter
         ]
     }
 
 
-viewLink : String -> Html msg
-viewLink path =
-    li [] [ a [ href path ] [ text path ] ]
+viewHeader : Page -> Html Msg
+viewHeader page =
+    let
+        logo =
+            h1 [] [ text "Quetzal" ]
+
+        links =
+            ul []
+                [ navLink { url = Route.documents, caption = "Sondy" }
+                , navLink { url = Route.speakers, caption = "Mluvčí" }
+                , navLink { url = Route.search, caption = "Vyhledávání" }
+                ]
+
+        navLink : { url : String, caption : String } -> Html msg
+        navLink { url, caption } =
+            li [] [ a [ href url ] [ text caption ] ]
+    in
+    nav [] [ logo, links ]
+
+
+viewFooter : Html Msg
+viewFooter =
+    footer [] [ text "&copy; ÚČNK 2022" ]
 
 
 
--- HTTP
-
-
-type alias Doc =
-    { id : String }
-
-
-type alias DocList =
-    List Doc
-
-
-getDocList : Cmd Msg
-getDocList =
-    Http.get
-        { url = "/api/documents"
-        , expect = Http.expectJson GotDocList docListDecoder
-        }
-
-
-docDecoder : D.Decoder Doc
-docDecoder =
-    D.map Doc <| D.field "id" D.string
-
-
-docListDecoder : D.Decoder DocList
-docListDecoder =
-    D.field "data" <| D.list docDecoder
+-- vi: foldmethod=marker
